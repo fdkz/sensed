@@ -30,9 +30,6 @@ class SubMain:
     def run(self):
         self._init()
 
-        llog.info("press 'x' to shoot")
-        llog.info("press arrows to move")
-
         do_quit = False
         prev_frame_time = time.time()
 
