@@ -85,10 +85,10 @@ class Camera:
         self.orthoy    = self.orthox / physical_window_w_h
 
     def set_orthox(self, orthox):
-        self.orthox = orthox
+        self.orthox = float(orthox)
 
     def set_orthoy(self, orthoy):
-        self.orthoy = orthoy
+        self.orthoy = float(orthoy)
 
     def set_opengl_projection(self, projection_mode, w_pixels, h_pixels, z_near=50., z_far=500*1000.):
         """

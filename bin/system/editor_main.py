@@ -71,11 +71,15 @@ class EditorMain:
         self.camera = camera.Camera()
         self.camera_ocs = coordinate_system.CoordinateSystem()
         # look down to the x/z plane from 10 units above.
-        self.camera_ocs.pos.set([0, 20., 0])
+        self.camera_ocs.pos.set([0, 10., 0])
         self.camera_ocs.a_frame.x_axis.set([ 1.0,  0.0,  0.0])
         self.camera_ocs.a_frame.y_axis.set([ 0.0,  0.0,  1.0])
         self.camera_ocs.a_frame.z_axis.set([ 0.0, -1.0,  0.0])
+        # initial size of the viewport in opengl units (let's think we use meters in this case)
+        self.camera.set_orthox(10)
+        self.camera.update_fovy(float(w) / h)
 
+        self.zoom_speed = 1.1
         # this can also be None, so be sure to check before use
         self.mouse_floor_coord = vector.Vector()
 
@@ -87,8 +91,6 @@ class EditorMain:
         self.circles = []
         self.init_circles()
         self._init_gl()
-
-        glEnableClientState (GL_VERTEX_ARRAY)
 
         self.floor = floor.Floor()
         #self._set_pixel_projection(w, h)
@@ -113,11 +115,14 @@ class EditorMain:
         self.circles.append(Circle(-3, 0, 2, (0.5, 0.5, 0.4, 1.)))
         self.circles.append(Circle(3, 1, 3, (0.5, 0.5, 1., 1.)))
 
-    def tick(self, t, keys):
+    def tick(self, dt, keys):
         """
         @param t: timestamp of the call
         @param keys:
         """
+        self.render(dt)
+
+    def render(self, dt):
         glViewport(0, 0, self.w_pixels, self.h_pixels)
 
         glClearColor(0.8,0.8,1.8,1.0)
@@ -125,9 +130,13 @@ class EditorMain:
 
         #glColor(1,0,0,1)
 
-        self.camera.set_fovx(80.)
+        # if using perspective projection:
+        #self.camera.set_fovx(80.)
+        #self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
+        #self.camera.set_opengl_projection(self.camera.PERSPECTIVE, self.w_pixels, self.h_pixels, .1, 1000.)
+        # else if using orthogonal projection
+        self.camera.set_opengl_projection(self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels, .1, 1000.)
         self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
-        self.camera.set_opengl_projection(self.camera.PERSPECTIVE, self.w_pixels, self.h_pixels, .1, 1000.)
 
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -182,7 +191,7 @@ class EditorMain:
         #if keys[K_UP]:    p.acc += speed * t
         #if keys[K_DOWN]:  p.acc -= speed * t
 
-        self.fps_counter.tick(t)
+        self.fps_counter.tick(dt)
         self.render_hud_text()
 
     def render_hud_text(self):
@@ -190,7 +199,7 @@ class EditorMain:
         x = self.w_pixels - 6.
         t = self.gltext
         y += t.height
-        t.drawtr(" example text 1        ", x, y, bgcolor=(1.0,1.0,1.0,.9), fgcolor=(0.,0.,0.,1.), z=100.); y+=t.height
+        t.drawtr(" example text 1         ", x, y, bgcolor=(1.0,1.0,1.0,.9), fgcolor=(0.,0.,0.,1.), z=100.); y+=t.height
         t.drawtr(" example text 2: %6.1f " % (55.65), x, y, bgcolor=(.9,.9,.9,.9)); y+=t.height
 
         if self.mouse_floor_coord:
@@ -212,8 +221,20 @@ class EditorMain:
         elif event.type == SDL_MOUSEMOTION:
             #llog.info("event mousemotion abs %i %i rel %i %i",
             #           event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel)
-            self.mouse_x = event.motion.x
-            self.mouse_y = event.motion.y
+            self.mouse_x = float(event.motion.x)
+            self.mouse_y = float(event.motion.y)
+        elif event.type == SDL_MOUSEWHEEL:
+            # zoom the camera view, but hold the point under mouse cursor steady.
+            # if using orthogonal projection:
+            if event.wheel.y > 0:
+                self.camera_ocs.pos[0] += (self.mouse_x / self.w_pixels - 0.5) * (self.camera.orthox - self.camera.orthox / self.zoom_speed) * event.wheel.y
+                self.camera_ocs.pos[2] -= (self.mouse_y / self.h_pixels - 0.5) * (self.camera.orthoy - self.camera.orthoy / self.zoom_speed) * event.wheel.y
+                self.camera.set_orthox(self.camera.orthox / self.zoom_speed / event.wheel.y)
+            else:
+                self.camera_ocs.pos[0] += (self.mouse_x / self.w_pixels - 0.5) * (self.camera.orthox - self.camera.orthox * self.zoom_speed) * -event.wheel.y
+                self.camera_ocs.pos[2] -= (self.mouse_y / self.h_pixels - 0.5) * (self.camera.orthoy - self.camera.orthoy * self.zoom_speed) * -event.wheel.y
+                self.camera.set_orthox(self.camera.orthox * self.zoom_speed * -event.wheel.y)
+            self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
         else:
             #llog.info("event! type %s", event.type)
             pass
