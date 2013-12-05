@@ -79,7 +79,8 @@ class EditorMain:
         self.camera.set_orthox(10)
         self.camera.update_fovy(float(w) / h)
 
-        self.zoom_speed = 1.2
+        self.keyb_zoom_speed = 3.
+        self.mouse_zoom_speed = 0.02
         self.mouse_x = 0
         self.mouse_y = 0
         # these are vectors, but also None if no valid vector could be constructed
@@ -123,6 +124,7 @@ class EditorMain:
         @param t: timestamp of the call
         @param keys:
         """
+        self.handle_controls(dt, keys)
         self.render(dt)
 
     def render(self, dt):
@@ -220,26 +222,17 @@ class EditorMain:
             #           event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel)
             self.mouse_x = float(event.motion.x)
             self.mouse_y = float(event.motion.y)
-            self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
             # works only if orthogonal projection is used
             if self.mouse_lbdown_floor_coord and not self.object_under_cursor:
                 d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
                                    0.,
                                    (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
                 self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
+            self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
 
         elif event.type == SDL_MOUSEWHEEL:
-            # zoom the camera view, but hold the point under mouse cursor steady.
-            # if using orthogonal projection:
-            if event.wheel.y > 0:
-                self.camera_ocs.pos[0] += (self.mouse_x / self.w_pixels - 0.5) * (self.camera.orthox - self.camera.orthox / self.zoom_speed) * event.wheel.y
-                self.camera_ocs.pos[2] -= (self.mouse_y / self.h_pixels - 0.5) * (self.camera.orthoy - self.camera.orthoy / self.zoom_speed) * event.wheel.y
-                self.camera.set_orthox(self.camera.orthox / self.zoom_speed / event.wheel.y)
-            else:
-                self.camera_ocs.pos[0] += (self.mouse_x / self.w_pixels - 0.5) * (self.camera.orthox - self.camera.orthox * self.zoom_speed) * -event.wheel.y
-                self.camera_ocs.pos[2] -= (self.mouse_y / self.h_pixels - 0.5) * (self.camera.orthoy - self.camera.orthoy * self.zoom_speed) * -event.wheel.y
-                self.camera.set_orthox(self.camera.orthox * self.zoom_speed * -event.wheel.y)
-            self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
+            if event.wheel.y:
+                self._zoom_view(self.mouse_x, self.mouse_y, self.mouse_zoom_speed * event.wheel.y)
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
             if event.button.button == SDL_BUTTON_LEFT:
@@ -263,6 +256,76 @@ class EditorMain:
             #llog.info("event! type %s", event.type)
             pass
 
+    def _zoom_view(self, anchor_pixel_x, anchor_pixel_y, zoom_percent):
+        # Zoom the camera view, but hold the point under mouse cursor steady. AND stop all movement when
+        # zoom limit is reached. Works only if using orthogonal projection.
+        p = self.camera_ocs.pos
+        if zoom_percent > 0:
+            MIN_FOV = 1.
+            orthox = max(self.camera.orthox * (1. / (1. + zoom_percent)), MIN_FOV)
+            zoom_amount = self.camera.orthox / orthox - 1
+            p[0] += (anchor_pixel_x / self.w_pixels - 0.5) * self.camera.orthox * (1. - 1. / (1. + zoom_amount))
+            p[2] -= (anchor_pixel_y / self.h_pixels - 0.5) * self.camera.orthoy * (1. - 1. / (1. + zoom_amount))
+            self.camera.set_orthox(orthox)
+
+        else:
+            MAX_FOV = 100.
+            orthox = min(self.camera.orthox * (1. - zoom_percent), MAX_FOV)
+            zoom_amount = (orthox - self.camera.orthox) / self.camera.orthox
+            p[0] -= (anchor_pixel_x / self.w_pixels - 0.5) * self.camera.orthox * zoom_amount
+            p[2] += (anchor_pixel_y / self.h_pixels - 0.5) * self.camera.orthoy * zoom_amount
+            self.camera.set_orthox(orthox)
+
+        self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
+
+    def handle_controls(self, dt, keys):
+        """Continuous (as opposed to event-based) UI control. Move the camera (or other objects?) according to
+        what keys are being held down."""
+
+        #speed    = 5.
+        #rotspeed = 120.
+
+        #cp = self.selected_obj.ocs.pos
+        #ca = self.selected_obj.ocs.a_frame
+
+        # if keys[SDL_SCANCODE_A]: cp.add(-ca.x_axis * speed * dt)
+        # if keys[SDL_SCANCODE_D]: cp.add( ca.x_axis * speed * dt)
+        # if keys[SDL_SCANCODE_E]: cp[1] += speed * dt
+        # if keys[SDL_SCANCODE_Q]: cp[1] -= speed * dt
+        # if keys[SDL_SCANCODE_W]: cp.add( ca.z_axis * speed * dt)
+        # if keys[SDL_SCANCODE_S]: cp.add(-ca.z_axis * speed * dt)
+
+        # up = vector.Vector((0., 1., 0.))
+
+        # if keys[SDL_SCANCODE_LEFT]:      ca.rotate(up,  rotspeed * dt)
+        # if keys[SDL_SCANCODE_RIGHT]:     ca.rotate(up, -rotspeed * dt)
+        # if keys[SDL_SCANCODE_UP]:        ca.rotate(ca.x_axis, -rotspeed * dt)
+        # if keys[SDL_SCANCODE_DOWN]:      ca.rotate(ca.x_axis,  rotspeed * dt)
+        # # if keys[k.MOTION_NEXT_PAGE]: ca.rotate(ca.z_axis,  rotspeed * dt)
+        # # if keys[k.MOTION_DELETE]:    ca.rotate(ca.z_axis, -rotspeed * dt)
+
+
+        # units per second. by using the view-area size, we'll always move by a percentage of the window.
+        speed = self.camera.orthox
+        p = self.camera_ocs.pos
+        c = False
+
+        if keys[SDL_SCANCODE_LEFT]:  p[0] -= speed * dt; c = True
+        if keys[SDL_SCANCODE_RIGHT]: p[0] += speed * dt; c = True
+        if keys[SDL_SCANCODE_UP]:    p[2] += speed * dt; c = True
+        if keys[SDL_SCANCODE_DOWN]:  p[2] -= speed * dt; c = True
+
+        if keys[SDL_SCANCODE_PAGEDOWN]:
+            self._zoom_view(self.w_pixels / 2., self.h_pixels / 2., -self.keyb_zoom_speed * dt)
+            c = True
+        if keys[SDL_SCANCODE_PAGEUP]:
+            self._zoom_view(self.w_pixels / 2., self.h_pixels / 2., self.keyb_zoom_speed * dt)
+            c = True
+
+        if c:
+            self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
+
+
     def get_pixel_floor_coord(self, x, y):
         #start, direction = self.camera.window_ray(self.camera.PERSPECTIVE, self.w_pixels, self.h_pixels, x, y)
         #if start:
@@ -271,9 +334,10 @@ class EditorMain:
         #    return self.floor.intersection(start, direction)
         start, direction = self.camera.window_ray(self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels, x, y)
         if start:
+#            llog.info("%s %s %s", start, direction, self.camera_ocs.pos)
             start = self.camera_ocs.projv_out(start)
+#            llog.info("%s", start)
             direction = self.camera_ocs.a_frame.projv_out(direction)
-            start += self.camera_ocs.pos
             return self.floor.intersection(start, direction)
         else:
             return None
