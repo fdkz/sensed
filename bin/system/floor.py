@@ -11,7 +11,7 @@ class Floor:
         self.num_tiles = num_tiles
         self.tile_size = tile_size
         self.grid_color = (0.7, 0.7, 0.7, 1.0)
-        self.fill_color = (0.5, 0.5, 0.5, 0.6)
+        self.fill_color = (0.6, 0.6, 0.6, 0.6)
 
         #self._floor_vertex_list = pyglet.graphics.vertex_list((ntiles+1) * 4, ('v3f/static', v))
         self._floor_vertex_list = self._build_grid_vbo(num_tiles, tile_size)
@@ -24,7 +24,7 @@ class Floor:
         return vbo.VBO(v)
 
     def render(self):
-        glLineWidth(2.)
+        glLineWidth(1.)
 
         glColor4f(*self.grid_color)
 

@@ -8,8 +8,9 @@ import ctypes
 #import traceback
 #import sys
 
-#from OpenGL.GL import *
+from OpenGL.GL import *
 #from OpenGL.GLU import *
+from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
 
 from sdl2 import *
 
@@ -65,8 +66,15 @@ class SubMain:
             print SDL_GetError()
             raise RuntimeError
 
-        #SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-        #SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+        #SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+        #SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+        #SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+        #SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+        #SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 32);
+        #SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1)
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
+
         w, h = 800, 600
         self.screen = SDL_CreateWindow(b"sensed", SDL_WINDOWPOS_UNDEFINED,
                                        SDL_WINDOWPOS_UNDEFINED, w, h,
@@ -80,6 +88,8 @@ class SubMain:
             raise RuntimeError
 
         self.context = SDL_GL_CreateContext(self.screen)
+
+        #glEnable(GL_MULTISAMPLE) # hm. multisampling seems to even work without this.
 
         if SDL_GL_SetSwapInterval(-1):
             print SDL_GetError()

@@ -52,15 +52,15 @@ class Circle:
 
         glBegin(GL_TRIANGLE_FAN)
         for a in range(0, 360, 10):
-            x, y = self.x + self.r * math.sin(math.radians(a)), self.y + self.r * math.cos(math.radians(a))
-            glVertex3f(x, y, 0.)
+            x, z = self.x + self.r * math.sin(math.radians(a)), self.y + self.r * math.cos(math.radians(a))
+            glVertex3f(x, 0., z)
         glEnd()
 
-        glBegin(GL_LINE_LOOP)
-        for a in range(0, 360, 10):
-            x, y = self.x + self.r * math.sin(math.radians(a)), self.y + self.r * math.cos(math.radians(a))
-            glVertex3f(x, y, 0.)
-        glEnd()
+        #glBegin(GL_LINE_LOOP)
+        #for a in range(0, 360, 10):
+        #    x, z = self.x + self.r * math.sin(math.radians(a)), self.y + self.r * math.cos(math.radians(a))
+        #    glVertex3f(x, 0., z)
+        #glEnd()
 
 
 class EditorMain:
@@ -79,12 +79,15 @@ class EditorMain:
         self.camera.set_orthox(10)
         self.camera.update_fovy(float(w) / h)
 
-        self.zoom_speed = 1.1
-        # this can also be None, so be sure to check before use
-        self.mouse_floor_coord = vector.Vector()
-
+        self.zoom_speed = 1.2
         self.mouse_x = 0
         self.mouse_y = 0
+        # these are vectors, but also None if no valid vector could be constructed
+        self.mouse_floor_coord = None
+        self.mouse_lbdown_floor_coord = None
+        self.mouse_lbdown_camera_coord = None
+        self.mouse_lbdown_window_coord = None
+        self.mouse_dragging = False
 
         self.fps_counter = fps_counter.FpsCounter()
 
@@ -125,7 +128,7 @@ class EditorMain:
     def render(self, dt):
         glViewport(0, 0, self.w_pixels, self.h_pixels)
 
-        glClearColor(0.8,0.8,1.8,1.0)
+        glClearColor(0.8,0.8,0.8,1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         #glColor(1,0,0,1)
@@ -163,13 +166,6 @@ class EditorMain:
         self.floor.render()
         for c in self.circles:
             c.render()
-
-
-        start, direction = self.camera.window_ray(self.camera.PERSPECTIVE, self.w_pixels, self.h_pixels, self.mouse_x, self.mouse_y)
-        if start:
-            direction = self.camera_ocs.projv_out(direction)
-            start += self.camera_ocs.pos
-            self.mouse_floor_coord = self.floor.intersection(start, direction)
 
         # render text and 2D overlay
 
@@ -218,11 +214,20 @@ class EditorMain:
                 llog.info("event window resized to %ix%i", event.window.data1, event.window.data2)
                 self.w_pixels = event.window.data1
                 self.h_pixels = event.window.data2
+
         elif event.type == SDL_MOUSEMOTION:
             #llog.info("event mousemotion abs %i %i rel %i %i",
             #           event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel)
             self.mouse_x = float(event.motion.x)
             self.mouse_y = float(event.motion.y)
+            self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
+            # works only if orthogonal projection is used
+            if self.mouse_lbdown_floor_coord and not self.object_under_cursor:
+                d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
+                                   0.,
+                                   (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
+                self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
+
         elif event.type == SDL_MOUSEWHEEL:
             # zoom the camera view, but hold the point under mouse cursor steady.
             # if using orthogonal projection:
@@ -235,6 +240,40 @@ class EditorMain:
                 self.camera_ocs.pos[2] -= (self.mouse_y / self.h_pixels - 0.5) * (self.camera.orthoy - self.camera.orthoy * self.zoom_speed) * -event.wheel.y
                 self.camera.set_orthox(self.camera.orthox * self.zoom_speed * -event.wheel.y)
             self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
+
+        elif event.type == SDL_MOUSEBUTTONDOWN:
+            if event.button.button == SDL_BUTTON_LEFT:
+                # find object under cursor. if no object, drag the world
+                self.mouse_dragging = True
+                self.object_under_cursor = None
+                self.mouse_floor_coord = self.get_pixel_floor_coord(event.button.x, event.button.y)
+                if self.mouse_floor_coord:
+                    self.mouse_lbdown_floor_coord = self.mouse_floor_coord.new()
+                    self.mouse_lbdown_camera_coord = self.camera_ocs.pos.new()
+                    self.mouse_lbdown_window_coord = (float(event.button.x), float(event.button.y))
+
+        elif event.type == SDL_MOUSEBUTTONUP:
+            if event.button.button == SDL_BUTTON_LEFT:
+                self.mouse_dragging = False
+                self.mouse_lbdown_floor_coord = None
+                self.mouse_lbdown_camera_coord = None
+                self.mouse_lbdown_window_coord = None
+
         else:
             #llog.info("event! type %s", event.type)
             pass
+
+    def get_pixel_floor_coord(self, x, y):
+        #start, direction = self.camera.window_ray(self.camera.PERSPECTIVE, self.w_pixels, self.h_pixels, x, y)
+        #if start:
+        #    direction = self.camera_ocs.projv_out(direction)
+        #    start += self.camera_ocs.pos
+        #    return self.floor.intersection(start, direction)
+        start, direction = self.camera.window_ray(self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels, x, y)
+        if start:
+            start = self.camera_ocs.projv_out(start)
+            direction = self.camera_ocs.a_frame.projv_out(direction)
+            start += self.camera_ocs.pos
+            return self.floor.intersection(start, direction)
+        else:
+            return None

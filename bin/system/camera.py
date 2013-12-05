@@ -157,7 +157,7 @@ class Camera:
             xx = self.orthox * (float(x) / w_pixels - .5)
             yy = self.orthoy * (float(y) / h_pixels - .5)
             zz = 1.
-            return vector.Vector((xx, yy, 0.)), vector.Vector((xx, -yy, zz))
+            return vector.Vector((xx, -yy, 0.)), vector.Vector((0., 0., zz))
         elif projection_mode == self.PERSPECTIVE:
             #  TODO: aspect ratio.. or already in tanfov*?
             xx = x - w_pixels / 2.
