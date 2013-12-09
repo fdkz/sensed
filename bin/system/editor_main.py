@@ -13,7 +13,7 @@ from sdl2 import *
 
 import window
 import camera
-import gltext
+from modules import gltext
 import floor
 import coordinate_system
 import vector
