@@ -2,7 +2,7 @@ import sys
 
 
 # TODO: this is not a foolproof way to detect 64-bit python. at least not under windows.
-_64bit = sys.maxint == 0x7fffffffffffffff
+_64bit = sys.maxsize == 0x7fffffffffffffff
 
 # python 2.6.x
 if 0x2060000 <= sys.hexversion < 0x2070000:

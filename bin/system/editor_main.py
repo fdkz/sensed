@@ -4,6 +4,7 @@ llog.info("make sure numpy is installed, or glGenBuffers will complain and crash
           "")
 import math
 import os
+import sys
 import random
 
 from OpenGL.GL import *
@@ -81,7 +82,12 @@ class EditorMain:
         self.camera.update_fovy(float(w) / h)
 
         self.keyb_zoom_speed = 3.
-        self.mouse_zoom_speed = 0.02
+        if sys.platform == "win32":
+            self.mouse_zoom_speed = 0.2
+        else:
+            # for macosx touchpad, use a much smaller zoom speed than on windows.
+            self.mouse_zoom_speed = 0.02
+
         self.mouse_x = 0
         self.mouse_y = 0
         # these are vectors, but also None if no valid vector could be constructed
