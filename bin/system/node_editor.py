@@ -13,6 +13,7 @@ from sdl2 import *
 
 import coordinate_system
 import vector
+import vbo
 
 
 class Node:
@@ -21,66 +22,65 @@ class Node:
         """pos is a vector.Vector()"""
         self.pos = pos.new()
         self.gltext = gltext
-        #self.red, self.g, self.b, self.a = red, g, b, a
         self.selected = False
 
         self.node_id = "FACE"
 
-    def render(self):
+        self._signal_strength_circles_vbo = self._build_signal_strength_circles_vbo()
+        self._signal_strength_filled_circles_xz_vbo = self._build_filled_circle_xz_vbo(4., (0.5, 0.5, 0.9, 0.8), (0.5, 0.5, 0.9, 0.))
+        self._icon_circle_outer_xy_vbo = self._build_filled_circle_xy_vbo(17, (1., 1., 1., 1.), (1., 1., 1., 1.))
+        self._icon_circle_inner_xy_vbo = self._build_filled_circle_xy_vbo(15, (0.8, 0.8, 0.8, 1.0), (0.8, 0.8, 0.8, 1.0))
 
-        centercolor = (0.5, 0.5, 0.9, 0.6)
-        edgecolor   = (0.5, 0.5, 0.9, 0.)
-        self._filled_circle_xz(self.pos, 4., centercolor, edgecolor)
+    def render(self):
         glLineWidth(1.)
-        for i in range(4):
-            self._circle_xz(self.pos, i+1, (0.5, 0.5, 0.5, 0.9*(0.7**i)))
+        glPushMatrix()
+        glTranslatef(*self.pos)
+        self._signal_strength_filled_circles_xz_vbo.draw(GL_TRIANGLE_FAN)
+        self._signal_strength_circles_vbo.draw(GL_LINES)
+        glPopMatrix()
+
+    def _build_signal_strength_circles_vbo(self):
+        """Build a vbo of some concnentric circles. meant to be rendered with GL_LINES."""
+        v = []
+        for i in range(4): # 4 circles
+            radius = i + 1
+            prevpoint = []
+            for a in range(0, 361, 5):
+                point = [radius * sin(radians(a)), 0., radius * cos(radians(a)), 0.5, 0.5, 0.5, 0.9*(0.6**i)]
+                if prevpoint:
+                    v.extend(prevpoint)
+                    v.extend(point)
+                prevpoint = point
+        return vbo.VBOColor(v)
+
+    def _build_filled_circle_xz_vbo(self, radius, centercolor, edgecolor):
+        """Build a vbo of a filled circle. meant to be rendered with GL_TRIANGLE_FAN."""
+        r,g,b,a = edgecolor
+        v = [0., 0., 0.] + list(centercolor)
+        for angle in range(0, 361, 5):
+            v.extend([radius * sin(radians(angle)), 0., radius * cos(radians(angle)), r,g,b,a])
+        return vbo.VBOColor(v)
+
+    def _build_filled_circle_xy_vbo(self, radius, centercolor, edgecolor):
+        """Build a vbo for the text background. Used with pixel projection. Meant to be rendered with GL_TRIANGLE_FAN."""
+        r,g,b,a = edgecolor
+        v = [0., 0., 0.] + list(centercolor)
+        for angle in range(0, 361, 5):
+            v.extend([radius * sin(radians(angle)), radius * cos(radians(angle)), 0., r,g,b,a])
+        return vbo.VBOColor(v)
 
     def render_overlay(self, screen_pos):
         """Render the iconified representation at these screen-coordinates."""
         glDisable(GL_TEXTURE_2D)
-        centercolor = (0.8, 0.8, 0.8, 1.0)
-        edgecolor   = (1., 1., 1., 1.)
-        radius_pixels = 17.
-        self._filled_circle_xy(screen_pos, radius_pixels, centercolor, centercolor)
-        glLineWidth(2.)
-        self._circle_xy(screen_pos, radius_pixels, edgecolor)
+
+        glPushMatrix()
+        glTranslatef(*screen_pos)
+        self._icon_circle_outer_xy_vbo.draw(GL_TRIANGLE_FAN)
+        self._icon_circle_inner_xy_vbo.draw(GL_TRIANGLE_FAN)
+        glPopMatrix()
+
         glEnable(GL_TEXTURE_2D)
         self.gltext.drawmm( self.node_id, screen_pos[0], screen_pos[1], bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=screen_pos[2])
-
-    def _filled_circle_xz(self, pos, radius, centercolor, edgecolor):
-        #glShadeModel(GL_SMOOTH)
-        glBegin(GL_TRIANGLE_FAN)
-        glColor4d(*centercolor)
-        glVertex3f(*pos)
-        glColor4d(*edgecolor)
-        for a in range(0, 360, 5):
-            glVertex3f(pos[0] + radius * sin(radians(a)), pos[1], pos[2] + radius * cos(radians(a)))
-        glVertex3f(pos[0], pos[1], pos[2] + radius)
-        glEnd()
-
-    def _circle_xz(self, pos, radius, color):
-        glColor4d(*color)
-        glBegin(GL_LINE_LOOP)
-        for a in range(0, 360, 5):
-            glVertex3f(pos[0] + radius * sin(radians(a)), pos[1], pos[2] + radius * cos(radians(a)))
-        glEnd()
-
-    def _filled_circle_xy(self, pos, radius, centercolor, edgecolor):
-        glBegin(GL_TRIANGLE_FAN)
-        glColor4d(*centercolor)
-        glVertex3f(*pos)
-        glColor4d(*edgecolor)
-        for a in range(0, 360, 5):
-            glVertex3f(pos[0] + radius * sin(radians(a)), pos[1] + radius * cos(radians(a)), pos[2])
-        glVertex3f(pos[0], pos[1] + radius, pos[2])
-        glEnd()
-
-    def _circle_xy(self, pos, radius, color):
-        glColor4d(*color)
-        glBegin(GL_LINE_LOOP)
-        for a in range(0, 360, 5):
-            glVertex3f(pos[0] + radius * sin(radians(a)), pos[1] + radius * cos(radians(a)), pos[2])
-        glEnd()
 
 
 class NodeEditor:
@@ -100,7 +100,7 @@ class NodeEditor:
         self.nodes.append(n)
         n = Node( vector.Vector((-3., h, -2.)), gltext )
         self.nodes.append(n)
-        n = Node( vector.Vector((-4., h, 1.)), gltext )
+        n = Node( vector.Vector((-11., h, 1.)), gltext )
         self.nodes.append(n)
 
     def tick(self, dt, keys):

@@ -4,6 +4,7 @@ from copenglconstants import * # import to silence opengl enum errors for pychar
 import vector
 import vbo
 
+
 class Floor:
     def __init__(self, num_tiles=100, tile_size=1.):
         """Build a grid of lines on the x/z plane. While drawing, also render a filled quad under the lines.
