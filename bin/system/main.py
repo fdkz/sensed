@@ -27,7 +27,7 @@ class PyOpenGLLogNoiseFilter(logging.Filter):
             log.exception("")
             return 1
 
-#logging.getLogger('OpenGL.formathandler').addFilter(PyOpenGLLogNoiseFilter())
+logging.getLogger('OpenGL.formathandler').addFilter(PyOpenGLLogNoiseFilter())
 
 # ---------------------------------------------------------------------------
 

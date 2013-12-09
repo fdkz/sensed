@@ -73,7 +73,7 @@ class SubMain:
         #SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 32);
         #SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1)
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
 
         w, h = 800, 600
         self.screen = SDL_CreateWindow(b"sensed", SDL_WINDOWPOS_UNDEFINED,

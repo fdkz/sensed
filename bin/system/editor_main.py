@@ -18,6 +18,7 @@ import floor
 import coordinate_system
 import vector
 import fps_counter
+import node_editor
 
 
 def g_set_opengl_pixel_projection(w_pixels, h_pixels, z_near=None, z_far=None):
@@ -101,23 +102,27 @@ class EditorMain:
         self.gltext = gltext.GLText(os.path.join(self.conf.path_data, "font_proggy_opti_small.txt"))
         self.gltext.init()
 
-    @staticmethod
-    def _init_gl():
+        self.node_editor = node_editor.NodeEditor(self.gltext, conf)
+
+    #@staticmethod
+    def _init_gl(self):
         #print "GL_DEPTH_BITS: ", glGetIntegerv(GL_DEPTH_BITS)
         glDisable(GL_TEXTURE_2D)
         glDisable(GL_DEPTH_TEST)
         glDisable(GL_FOG)
         glDisable(GL_DITHER)
         glDisable(GL_LIGHTING)
-        glShadeModel(GL_FLAT)
+        glShadeModel(GL_SMOOTH)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # for some reason this doesnt work when using multisampling. have to use 4 samples to get a passable result.
         glEnable(GL_LINE_SMOOTH)
         glDisable(GL_LINE_STIPPLE)
 
     def init_circles(self):
-        self.circles.append(Circle(-3, 0, 2, (0.5, 0.5, 0.4, 1.)))
-        self.circles.append(Circle(3, 1, 3, (0.5, 0.5, 1., 1.)))
+        #self.circles.append(Circle(-3, 0, 2, (0.5, 0.5, 0.4, 1.)))
+        #self.circles.append(Circle(3, 1, 3, (0.5, 0.5, 1., 1.)))
+        pass
 
     def tick(self, dt, keys):
         """
@@ -125,9 +130,13 @@ class EditorMain:
         @param keys:
         """
         self.handle_controls(dt, keys)
+        self.node_editor.tick(dt, keys)
         self.render(dt)
 
+
     def render(self, dt):
+        glShadeModel(GL_SMOOTH) # go to hell opengl. it's not enough if this line is the _init_gl method. why is it not enough?
+
         glViewport(0, 0, self.w_pixels, self.h_pixels)
 
         glClearColor(0.8,0.8,0.8,1.0)
@@ -169,6 +178,8 @@ class EditorMain:
         for c in self.circles:
             c.render()
 
+        self.node_editor.render()
+
         # render text and 2D overlay
 
         self.camera.set_opengl_projection(self.camera.PIXEL, self.w_pixels, self.h_pixels, .1, 1000.)
@@ -177,7 +188,8 @@ class EditorMain:
         glLoadIdentity()
         glScalef(1.,1.,-1.)
         glDisable(GL_DEPTH_TEST)
-        glEnable(GL_TEXTURE_2D)
+
+        self.node_editor.render_overlay(self.camera, self.camera_ocs, self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels)
 
         #glScale(40., 40., 1.)
         #glTranslate(10., 0., -15.)
@@ -193,6 +205,7 @@ class EditorMain:
         self.render_hud_text()
 
     def render_hud_text(self):
+        glEnable(GL_TEXTURE_2D)
         y = 5.
         x = self.w_pixels - 6.
         t = self.gltext
