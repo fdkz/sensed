@@ -1,11 +1,11 @@
-# update: 2012.07.15
-
 import math
 
-from pyglet.gl import *
+from OpenGL.GL import *
+from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
 
 import coordinate_system
 import vector
+
 
 class Camera:
     """
@@ -13,10 +13,13 @@ class Camera:
     camera.mode = Camera.ORTHOGONAL
     camera.set_window_size(800, 600)
 
-    camera.set_opengl_projection()
+    camera.set_fovx(80.)
+    camera.set_opengl_projection(camera.ORTHOGONAL, window_w_pixels, window_h_pixels, .1, 1000.)
+    camera.update_fovy(float(window_w_pixels) / window_h_pixels)
+
     .. draw 3d stuff ..
 
-    camera.set_opengl_pixel_projection()
+    camera.set_opengl_projection(camera.PIXEL, window_w_pixels, window_h_pixels, .1, 1000.)
     sx, sy, sz = camera.screenspace(vector)
     .. draw text/icons at pixel (sx, sy) with depth sz ..
 
@@ -24,6 +27,11 @@ class Camera:
 
     forward-z should be positive, unlike in opengl.. methods like
     screenspace, window_ray.. may not work otherwise. don't know.
+    one way to flip z axis:
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+        glScalef(1.,1.,-1.)
+
     """
     ORTHOGONAL  = 1 # screen center is (0, 0)
     PERSPECTIVE = 2
