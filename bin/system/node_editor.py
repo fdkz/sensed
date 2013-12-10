@@ -138,6 +138,26 @@ class NodeEditor:
             node.render()
 
     def render_overlay(self):
+        # draw lines from the selected node to every other node
+        if self.selected:
+            glLineWidth(1.)
+            glColor4f(0.3,0.3,0.3,.9)
+            for node in self.nodes:
+                if node != self.selected:
+                    glColor4f(0.,0.,0.,1.)
+                    glBegin(GL_LINES)
+                    glVertex3f(*self.selected.screen_pos)
+                    glVertex3f(*node.screen_pos)
+                    glEnd()
+
+                    glEnable(GL_TEXTURE_2D)
+                    s = (self.selected.screen_pos + node.screen_pos) / 2.
+                    dist = node.pos.dist(self.selected.pos)
+                    #self.gltext.drawmm("%.2f" % dist, s[0], s[1], bgcolor=(1.0,1.0,1.0,0.7), fgcolor=(0.,0.,0.,1.), z=s[2])
+                    self.gltext.drawmm("%.2f" % dist, s[0], s[1], bgcolor=(0.2,0.2,0.2,0.7), fgcolor=(1.,1.,1.,1.), z=s[2])
+                    glDisable(GL_TEXTURE_2D)
+
+        # draw the nodes themselves
         for node in self.nodes:
             node.render_overlay()
 
@@ -165,33 +185,26 @@ class NodeEditor:
             else:
                 self.mouse_hover = False
 
-            if self.selected and self.mouse.mouse_lbdown_floor_coord:
+            if self.selected and self.mouse_dragging and self.mouse.mouse_lbdown_floor_coord:
                 self.selected.pos.set(self.mouse.mouse_floor_coord + self.selected_pos_ofs)
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
             if event.button.button == SDL_BUTTON_LEFT:
                 node = self.intersects(event.button.x, event.button.y)
-                for n in self.nodes:
-                    n.selected = False
-                self.selected = node
                 if node:
+                    for n in self.nodes:
+                        n.selected = False
+                    self.selected = node
                     node.selected = True
                     self.selected_pos_ofs.set(node.pos - self.mouse.mouse_lbdown_floor_coord)
                     self.mouse_dragging = True
 
-                ## find object under cursor. if no object, drag the world
-                #self.mouse_dragging = True
-                #self.object_under_cursor = None
-                #self.mouse_floor_coord = self.get_pixel_floor_coord(event.button.x, event.button.y)
-                #if self.mouse_floor_coord:
-                #    self.mouse_lbdown_floor_coord = self.mouse_floor_coord.new()
-                #    self.mouse_lbdown_camera_coord = self.camera_ocs.pos.new()
-                #    self.mouse_lbdown_window_coord = (float(event.button.x), float(event.button.y))
-
         elif event.type == SDL_MOUSEBUTTONUP:
             if event.button.button == SDL_BUTTON_LEFT:
-                self.mouse_dragging = False
-                #self.mouse_dragging = False
-                #self.mouse_lbdown_floor_coord = None
-                #self.mouse_lbdown_camera_coord = None
-                #self.mouse_lbdown_window_coord = None
+                if self.mouse_dragging:
+                    node = self.intersects(event.button.x, event.button.y)
+                    if not node:
+                        self.selected = None
+                        for n in self.nodes:
+                            n.selected = False
+                    self.mouse_dragging = False
