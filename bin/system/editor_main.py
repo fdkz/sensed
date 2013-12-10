@@ -95,6 +95,8 @@ class EditorMain:
         self.mouse_lbdown_floor_coord = None
         self.mouse_lbdown_camera_coord = None
         self.mouse_lbdown_window_coord = None
+        self.mouse_window_coord = None
+        self.mouse_lbdown = False
         self.mouse_dragging = False
 
         self.fps_counter = fps_counter.FpsCounter()
@@ -109,7 +111,6 @@ class EditorMain:
         self.gltext.init()
 
         self.node_editor = node_editor.NodeEditor(self, self.gltext, conf)
-        self.camera_changed()
 
     #@staticmethod
     def _init_gl(self):
@@ -196,7 +197,7 @@ class EditorMain:
         glScalef(1.,1.,-1.)
         glDisable(GL_DEPTH_TEST)
 
-        self.node_editor.render_overlay()
+        self.node_editor.render_overlay(self.camera, self.camera_ocs, self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels)
 
         #glScale(40., 40., 1.)
         #glTranslate(10., 0., -15.)
@@ -230,9 +231,6 @@ class EditorMain:
         t.drawbr("fps: %.0f" % (self.fps_counter.fps), self.w_pixels, self.h_pixels,
                  fgcolor = (0., 0., 0., 1.), bgcolor = (0.7, 0.7, 0.7, .9), z = 100.)
 
-    def camera_changed(self):
-        self.node_editor.recalculate_screen_pos(self.camera, self.camera_ocs, self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels)
-
     def event(self, event):
         if event.type == SDL_WINDOWEVENT:
             if event.window.event == SDL_WINDOWEVENT_RESIZED:
@@ -246,13 +244,13 @@ class EditorMain:
             #           event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel)
             self.mouse_x = float(event.motion.x)
             self.mouse_y = float(event.motion.y)
+            self.mouse_window_coord = (float(event.motion.x), float(event.motion.y))
             # works only if orthogonal projection is used
-            if self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
+            if self.mouse_lbdown and self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
                 d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
                                    0.,
                                    (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
                 self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
-                self.camera_changed()
             self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
 
         elif event.type == SDL_MOUSEWHEEL:
@@ -261,6 +259,7 @@ class EditorMain:
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
             if event.button.button == SDL_BUTTON_LEFT:
+                self.mouse_lbdown = True
                 # find object under cursor. if no object, drag the world
                 self.mouse_dragging = True
                 self.object_under_cursor = None
@@ -272,19 +271,17 @@ class EditorMain:
 
         elif event.type == SDL_MOUSEBUTTONUP:
             if event.button.button == SDL_BUTTON_LEFT:
+                self.mouse_lbdown = False
                 self.mouse_dragging = False
-                self.mouse_lbdown_floor_coord = None
-                self.mouse_lbdown_camera_coord = None
-                self.mouse_lbdown_window_coord = None
+                #self.mouse_lbdown_floor_coord = None
+                #self.mouse_lbdown_camera_coord = None
+                #self.mouse_lbdown_window_coord = None
 
         else:
             #llog.info("event! type %s", event.type)
             pass
 
         self.node_editor.event(event)
-        # recalculate all screen positions just in case the node positions changed
-        if self.node_editor.mouse_dragging:
-            self.camera_changed()
 
     def _zoom_view(self, anchor_pixel_x, anchor_pixel_y, zoom_percent):
         # Zoom the camera view, but hold the point under mouse cursor steady. AND stop all movement when
@@ -307,7 +304,6 @@ class EditorMain:
             self.camera.set_orthox(orthox)
 
         self.camera.update_fovy(float(self.w_pixels) / self.h_pixels)
-        self.camera_changed()
 
     def handle_controls(self, dt, keys):
         """Continuous (as opposed to event-based) UI control. Move the camera (or other objects?) according to
@@ -355,7 +351,6 @@ class EditorMain:
 
         if c:
             self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
-            self.camera_changed()
 
     def get_pixel_floor_coord(self, x, y):
         #start, direction = self.camera.window_ray(self.camera.PERSPECTIVE, self.w_pixels, self.h_pixels, x, y)

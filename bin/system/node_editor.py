@@ -137,14 +137,20 @@ class NodeEditor:
         for node in self.nodes:
             node.render()
 
-    def render_overlay(self):
+    def render_overlay(self, camera, camera_ocs, projection_mode, w_pixels, h_pixels):
+        # calculate node screen positions
+        for node in self.nodes:
+            # 1. proj obj to camera_ocs
+            # 2. proj coord to screenspace
+            v = camera_ocs.projv_in(node.pos)
+            node.screen_pos.set(camera.screenspace(projection_mode, v, w_pixels, h_pixels))
+
         # draw lines from the selected node to every other node
         if self.selected:
             glLineWidth(1.)
-            glColor4f(0.3,0.3,0.3,.9)
             for node in self.nodes:
                 if node != self.selected:
-                    glColor4f(0.,0.,0.,1.)
+                    glColor4f(0.3,0.3,0.3,.9)
                     glBegin(GL_LINES)
                     glVertex3f(*self.selected.screen_pos)
                     glVertex3f(*node.screen_pos)
@@ -153,7 +159,6 @@ class NodeEditor:
                     glEnable(GL_TEXTURE_2D)
                     s = (self.selected.screen_pos + node.screen_pos) / 2.
                     dist = node.pos.dist(self.selected.pos)
-                    #self.gltext.drawmm("%.2f" % dist, s[0], s[1], bgcolor=(1.0,1.0,1.0,0.7), fgcolor=(0.,0.,0.,1.), z=s[2])
                     self.gltext.drawmm("%.2f" % dist, s[0], s[1], bgcolor=(0.2,0.2,0.2,0.7), fgcolor=(1.,1.,1.,1.), z=s[2])
                     glDisable(GL_TEXTURE_2D)
 
@@ -161,12 +166,12 @@ class NodeEditor:
         for node in self.nodes:
             node.render_overlay()
 
-    def recalculate_screen_pos(self, camera, camera_ocs, projection_mode, w_pixels, h_pixels):
-        for node in self.nodes:
-            # 1. proj obj to camera_ocs
-            # 2. proj coord to screenspace
-            v = camera_ocs.projv_in(node.pos)
-            node.screen_pos.set(camera.screenspace(projection_mode, v, w_pixels, h_pixels))
+    #def recalculate_screen_pos(self, camera, camera_ocs, projection_mode, w_pixels, h_pixels):
+    #    for node in self.nodes:
+    #        # 1. proj obj to camera_ocs
+    #        # 2. proj coord to screenspace
+    #        v = camera_ocs.projv_in(node.pos)
+    #        node.screen_pos.set(camera.screenspace(projection_mode, v, w_pixels, h_pixels))
 
     def intersects(self, sx, sy):
         for node in self.nodes:
@@ -198,13 +203,16 @@ class NodeEditor:
                     node.selected = True
                     self.selected_pos_ofs.set(node.pos - self.mouse.mouse_lbdown_floor_coord)
                     self.mouse_dragging = True
+                else:
+                    self.mouse_dragging = False
 
         elif event.type == SDL_MOUSEBUTTONUP:
             if event.button.button == SDL_BUTTON_LEFT:
-                if self.mouse_dragging:
+                #if self.mouse_dragging:
+                if self.mouse.mouse_lbdown_window_coord == self.mouse.mouse_window_coord:
                     node = self.intersects(event.button.x, event.button.y)
                     if not node:
                         self.selected = None
                         for n in self.nodes:
                             n.selected = False
-                    self.mouse_dragging = False
+                self.mouse_dragging = False
