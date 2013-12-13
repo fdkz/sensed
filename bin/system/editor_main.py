@@ -20,6 +20,7 @@ import coordinate_system
 import vector
 import fps_counter
 import node_editor
+import nugui
 
 
 def g_set_opengl_pixel_projection(w_pixels, h_pixels, z_near=None, z_far=None):
@@ -110,6 +111,8 @@ class EditorMain:
         self.gltext = gltext.GLText(os.path.join(self.conf.path_data, "font_proggy_opti_small.txt"))
         self.gltext.init()
 
+        self.nugui = nugui.NuGui(self.gltext)
+
         self.node_editor = node_editor.NodeEditor(self, self.gltext, conf)
 
     #@staticmethod
@@ -140,9 +143,11 @@ class EditorMain:
         self.handle_controls(dt, keys)
         self.node_editor.tick(dt, keys)
         self.render(dt)
-
+        self.nugui.tick()
 
     def render(self, dt):
+        self.fps_counter.tick(dt)
+
         glShadeModel(GL_SMOOTH) # go to hell opengl. it's not enough if this line is the _init_gl method. why is it not enough?
 
         glViewport(0, 0, self.w_pixels, self.h_pixels)
@@ -194,6 +199,7 @@ class EditorMain:
 
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
+        #glTranslatef(0.375, 0.375, 0.0)
         glScalef(1.,1.,-1.)
         glDisable(GL_DEPTH_TEST)
 
@@ -209,8 +215,25 @@ class EditorMain:
         #if keys[K_UP]:    p.acc += speed * t
         #if keys[K_DOWN]:  p.acc -= speed * t
 
-        self.fps_counter.tick(dt)
         self.render_hud_text()
+        self.render_handle_gui()
+        self.nugui.finish_frame()
+
+    def render_handle_gui(self):
+        glEnable(GL_TEXTURE_2D)
+        glLineWidth(1.)
+        # self.nugui.begin_listbox(1, 100, 100, w = 200.)
+        # if self.nugui.listbox_item(2, "itemnum1 here"):     llog.info("item1")
+        # if self.nugui.listbox_item(3, "itemnum2 here too"): llog.info("item2")
+        # if self.nugui.listbox_item(4, "itemnum3 bla"):      llog.info("item3")
+        # if self.nugui.listbox_item(5, "itemnum4 1"):        llog.info("item4")
+        # if self.nugui.listbox_item(6, "itemnum5 test"):     llog.info("item5")
+        # self.nugui.end_listbox()
+        if self.nugui.button(7, 5, 30, "save user/sensormap.txt"): llog.info("clicked1")
+        changed, text = self.nugui.textentry(8, 100, 100, 60, "FF33")
+        if changed:
+            llog.info("text changed to %s", text)
+        #if self.nugui.button(8, 210, 250, "hover me too"): llog.info("clicked2")
 
     def render_hud_text(self):
         glEnable(GL_TEXTURE_2D)
@@ -244,6 +267,7 @@ class EditorMain:
             #           event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel)
             self.mouse_x = float(event.motion.x)
             self.mouse_y = float(event.motion.y)
+            self.nugui.set_mouse_pos(self.mouse_x, self.mouse_y)
             self.mouse_window_coord = (float(event.motion.x), float(event.motion.y))
             # works only if orthogonal projection is used
             if self.mouse_lbdown and self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
@@ -259,6 +283,7 @@ class EditorMain:
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
             if event.button.button == SDL_BUTTON_LEFT:
+                self.nugui.set_mouse_button(True)
                 self.mouse_lbdown = True
                 # find object under cursor. if no object, drag the world
                 self.mouse_dragging = True
@@ -271,12 +296,15 @@ class EditorMain:
 
         elif event.type == SDL_MOUSEBUTTONUP:
             if event.button.button == SDL_BUTTON_LEFT:
+                self.nugui.set_mouse_button(False)
                 self.mouse_lbdown = False
                 self.mouse_dragging = False
                 #self.mouse_lbdown_floor_coord = None
                 #self.mouse_lbdown_camera_coord = None
                 #self.mouse_lbdown_window_coord = None
 
+        elif event.type == SDL_KEYDOWN:
+            self.nugui.event(event)
         else:
             #llog.info("event! type %s", event.type)
             pass
