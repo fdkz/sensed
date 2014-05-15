@@ -42,9 +42,9 @@ class SubMain:
 
             while SDL_PollEvent(ctypes.byref(event)) != 0:
 
-                #if event.type == SDL_KEYDOWN:
-                #    if event.key.keysym.scancode == SDL_SCANCODE_ESCAPE:
-                #        do_quit = True
+                if event.type == SDL_KEYDOWN:
+                    if event.key.keysym.scancode == SDL_SCANCODE_ESCAPE:
+                        do_quit = True
 
                 if event.type == SDL_QUIT:
                     do_quit = True

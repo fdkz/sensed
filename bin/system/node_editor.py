@@ -16,7 +16,7 @@ import vbo
 
 class Node:
 
-    def __init__(self, pos, gltext):
+    def __init__(self, pos, node_id, gltext):
         """pos is a vector.Vector()"""
         self.pos = pos.new()
         self.gltext = gltext
@@ -26,7 +26,11 @@ class Node:
         self.mouse_hover = False
         self.selected = False
 
-        self.node_id = "FACE"
+        self.node_id = node_id # "FACE"
+        self.node_name = str(node_id)
+
+        self.attrs = {}
+
         self.radius_pixels = 17.
 
         self._signal_strength_circles_vbo = self._build_signal_strength_circles_vbo()
@@ -69,7 +73,12 @@ class Node:
         glPopMatrix()
 
         glEnable(GL_TEXTURE_2D)
-        self.gltext.drawmm(self.node_id, s[0], s[1], bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=s[2])
+        self.gltext.drawmm(self.node_name, s[0], s[1], bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=s[2])
+
+        h = self.gltext.height * 2 + 2
+        for key, val in self.attrs.items():
+            self.gltext.drawmm("%s: %s" % (key, val), s[0], s[1] + h, bgcolor=(0,0,0,.3), fgcolor=(1.3,1.3,1.3,1.), z=s[2])
+            h += self.gltext.height
 
     def intersects(self, sx, sy):
         p = self.screen_pos
@@ -111,6 +120,7 @@ class NodeEditor:
         self.mouse = mouse  # TODO: use a special mouse object instead of the editor_main object directly.
         self.gltext = gltext
         self.nodes = []
+        self.nodes_dict = {}
 
         self.mouse_hover = False
         self.mouse_dragging = False
@@ -118,18 +128,16 @@ class NodeEditor:
         self.selected_pos_ofs = vector.Vector()
 
         h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
-        n = Node( vector.Vector((0., h, 0.)), gltext )
-        self.nodes.append(n)
-        n = Node( vector.Vector((4., h, 0.)), gltext )
-        self.nodes.append(n)
-        n = Node( vector.Vector((6., h, -1.)), gltext )
-        self.nodes.append(n)
-        n = Node( vector.Vector((-2., h, 2.)), gltext )
-        self.nodes.append(n)
-        n = Node( vector.Vector((-3., h, -2.)), gltext )
-        self.nodes.append(n)
-        n = Node( vector.Vector((-11., h, 1.)), gltext )
-        self.nodes.append(n)
+        n = Node( vector.Vector((0., h, 0.)), 1, gltext ); self.append_node(n)
+        n = Node( vector.Vector((1., h, 0.)), 2, gltext ); self.append_node(n)
+        n = Node( vector.Vector((2., h, -1.)), 3, gltext ); self.append_node(n)
+        n = Node( vector.Vector((-2., h, 2.)), 4, gltext ); self.append_node(n)
+        n.attrs["etx"] = 44
+
+    def append_node(self, node):
+        assert node.node_id not in self.nodes_dict
+        self.nodes.append(node)
+        self.nodes_dict[node.node_id] = node
 
     def tick(self, dt, keys):
         pass
