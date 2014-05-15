@@ -2,6 +2,7 @@ import logging
 llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
 
 from math import sin, cos, radians
+import json
 
 from OpenGL.GL import *
 from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
@@ -158,8 +159,8 @@ class NodeEditor:
 
                     glEnable(GL_TEXTURE_2D)
                     s = (self.selected.screen_pos + node.screen_pos) / 2.
-                    dist = node.pos.dist(self.selected.pos)
-                    self.gltext.drawmm("%.2f" % dist, s[0], s[1], bgcolor=(0.2,0.2,0.2,0.7), fgcolor=(1.,1.,1.,1.), z=s[2])
+                    link_quality = self._calc_link_quality(node, self.selected)
+                    self.gltext.drawmm("%.2f" % link_quality, s[0], s[1], bgcolor=(0.2,0.2,0.2,0.7), fgcolor=(1.,1.,1.,1.), z=s[2])
                     glDisable(GL_TEXTURE_2D)
 
         # draw the nodes themselves
@@ -178,6 +179,31 @@ class NodeEditor:
             if node.intersects(float(sx), float(sy)):
                 return node
         return None
+
+    def save_graph_file(self, filename="sensormap.txt"):
+        d = {"format": "sensed node graph", "format_version": "2013-12-19", "nodes": [], "edges": []}
+
+        for node in self.nodes:
+            p = node.pos
+            n = {"id": node.node_id, "pos": [p[0], p[1], p[2]]}
+            d["nodes"].append(n)
+
+        edge_count = 0
+        for node1 in self.nodes:
+            for node2 in self.nodes:
+                if node1 != node2:
+                    edge_count += 1
+                    e = {"id": edge_count, "source": node1.node_id, "dest": node2.node_id, "link_quality": self._calc_link_quality(node1, node2)}
+                    d["edges"].append(e)
+
+        txt = json.dumps(d, indent=4, sort_keys=True)
+
+        with open(filename, "wb") as f:
+            f.write(txt)
+
+    def _calc_link_quality(self, node1, node2):
+        dist = node1.pos.dist(node2.pos)
+        return dist
 
     def event(self, event):
         if event.type == SDL_MOUSEMOTION:
