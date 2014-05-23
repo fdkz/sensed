@@ -79,7 +79,7 @@ class EditorMain:
         self.camera_ocs.a_frame.y_axis.set([ 0.0,  0.0,  1.0])
         self.camera_ocs.a_frame.z_axis.set([ 0.0, -1.0,  0.0])
         # initial size of the viewport in opengl units (let's think we use meters in this case)
-        self.camera.set_orthox(10)
+        self.camera.set_orthox(20)
         self.camera.update_fovy(float(w) / h)
 
         self.keyb_zoom_speed = 3.
