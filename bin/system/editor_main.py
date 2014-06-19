@@ -229,13 +229,15 @@ class EditorMain:
         # if self.nugui.listbox_item(5, "itemnum4 1"):        llog.info("item4")
         # if self.nugui.listbox_item(6, "itemnum5 test"):     llog.info("item5")
         # self.nugui.end_listbox()
-        if self.nugui.button(7, 5, 30, "save user/sensormap.txt"):
-            llog.info("saving sensormap.txt")
-            self.node_editor.save_graph_file(os.path.join(self.conf.py_path, "sensormap.txt"))
 
-        changed, text = self.nugui.textentry(8, 100, 100, 60, "FF33")
-        if changed:
-            llog.info("text changed to %s", text)
+        #if self.nugui.button(7, 5, 30, "save user/sensormap.txt"):
+        #    llog.info("saving sensormap.txt")
+        #    self.node_editor.save_graph_file(os.path.join(self.conf.py_path, "sensormap.txt"))
+
+        #changed, text = self.nugui.textentry(8, 100, 100, 60, "FF33")
+        #if changed:
+        #    llog.info("text changed to %s", text)
+
         #if self.nugui.button(8, 210, 250, "hover me too"): llog.info("clicked2")
 
     def render_hud_text(self):
