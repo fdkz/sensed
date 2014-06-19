@@ -9,8 +9,11 @@ prerequisites
 
 pip install PyOpenGL
 pip install pysdl2
+pip install PIL (pillow?)
 pip install cython ?
 
+http://download.nanomsg.org/nanomsg-0.4-beta.tar.gz
+https://github.com/tonysimpson/nanomsg-python
 
 linux:
     sudo apt-get install libglu1-mesa-dev freeglut3-dev mesa-common-dev ?
