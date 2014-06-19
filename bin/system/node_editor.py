@@ -182,14 +182,16 @@ class Node:
 
         if "radiopowerstate" in self.attrs:
             self.inner_color = self._get_node_color(awake=self.attrs["radiopowerstate"])
+        else:
+            self.inner_color = self._get_node_color(awake=False)
         lighter = (0.1, 0.1, 0.1, 1.0)
 
         if self.selected:
             outer_color = (1., .4, .4, 1.)
-            self.inner_color = (sum(x) for x in zip(self.inner_color, lighter))
+            self.inner_color = tuple(sum(x) for x in zip(self.inner_color, lighter))
         elif self.mouse_hover:
             outer_color = (1., 1., 1., 1.)
-            self.inner_color = (sum(x) for x in zip(self.inner_color, lighter))
+            self.inner_color = tuple(sum(x) for x in zip(self.inner_color, lighter))
         else:
             outer_color = (1., 1., 1., 1.)
 
