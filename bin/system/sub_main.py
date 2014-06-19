@@ -1,15 +1,13 @@
 import logging
 llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
 
-#import math
-#import random
 import time
 import ctypes
-#import traceback
-#import sys
+
+
+from PIL import Image
 
 from OpenGL.GL import *
-#from OpenGL.GLU import *
 from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
 
 from sdl2 import *
@@ -24,6 +22,10 @@ class SubMain:
         self.context = None
         self.keys = None
         self.editor_main = None
+
+        # make so that the first screenshot is saved after 2 minutes, but all later with AUTOSCREENSHOT_PERIOD.
+        self.AUTOSCREENSHOT_PERIOD = 5.*60
+        self.t_last_autoscreenshot = time.time() - self.AUTOSCREENSHOT_PERIOD + 2.*60
 
     def close(self):
         pass
@@ -53,6 +55,13 @@ class SubMain:
                     do_quit = True
 
             self.editor_main.tick(time_elapsed, self.keys)
+
+
+            if t > self.t_last_autoscreenshot + self.AUTOSCREENSHOT_PERIOD:
+                self.t_last_autoscreenshot = t
+                self.save_screenshot("autoscreenshot_")
+
+
             SDL_GL_SwapWindow(self.screen)
 
             prev_frame_time = t
@@ -99,11 +108,22 @@ class SubMain:
 
         self.keys = SDL_GetKeyboardState(None)
 
-        #FULLSCREEN, HWSURFACE
-        #g_screen = pygame.display.set_mode((640, 480), DOUBLEBUF | OPENGL)
-        #pygame.display.set_caption('crawlys')
-        #pygame.mouse.set_visible(1)
-
-        #random.seed(1)
-
         self.editor_main = editor_main.EditorMain(w, h, self.conf)
+
+    def save_screenshot(self, filename_prefix="screenshot_"):
+        """saves screenshots/filename_prefix20090404_120211_utc.png"""
+        utc = time.gmtime(time.time())
+        filename = filename_prefix + "%04i%02i%02i_%02i%02i%02i_utc.png" % \
+                   (utc.tm_year, utc.tm_mon, utc.tm_mday,                  \
+                    utc.tm_hour, utc.tm_min, utc.tm_sec)
+        llog.info("saving screenshot '%s'", filename)
+
+        w, h = ctypes.c_int(), ctypes.c_int()
+        SDL_GetWindowSize(self.screen, ctypes.byref(w), ctypes.byref(h))
+        w, h = w.value, h.value
+        pixels = (ctypes.c_ubyte * (3 * w * h))()
+
+        glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+        i = Image.frombuffer('RGB', (w, h), pixels, 'raw', 'RGB', 0, -1)
+        i.save("../screenshots/" + filename)
+
