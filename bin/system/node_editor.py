@@ -1,10 +1,11 @@
 import logging
 llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
 
-from math import sin, cos, radians
+from math import sin, cos, radians, atan2
 import json
 import errno
 import math
+import random
 
 from OpenGL.GL import *
 from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
@@ -44,11 +45,25 @@ class ColorAnimation:
 
 class BeaconAnimation:
     _filled_circles_xz_vbo = None
+    _pull_beacon_center_color =     (1.0, 0.271, 0.0, 0.3)
+    _pull_beacon_edge_color =       (1.0, 0.271, 1.0, 0.0)
+    _normal_beacon_center_color =   (0.5, 0.5, 0.9, 0.3)
+    _normal_beacon_edge_color =     (0.5, 0.5, 0.9, 0.0)
 
-    def __init__(self):
+    CTP_OPT_PULL = 0x80
+
+    def __init__(self, options):
+        if options & self.CTP_OPT_PULL:
+            self.centercolor = self._pull_beacon_center_color
+            self.edgecolor = self._pull_beacon_edge_color
+        else:
+            self.centercolor = self._normal_beacon_center_color
+            self.edgecolor = self._normal_beacon_edge_color
+
         if not self._filled_circles_xz_vbo:
             self._filled_circles_xz_vbo = self._build_filled_circle_xz_vbo(
-                1.5, (0.5, 0.5, 0.9, 0.3), (0.5, 0.5, 0.9, 0.))
+                1.5, self.centercolor, self.edgecolor)
+
         self.age = 0.
         self.max_age = 2.
         self.dead = False
@@ -60,7 +75,8 @@ class BeaconAnimation:
                 self.dead = True
 
     def render(self):
-        glColor4f(.5, .5, .9, 1. - self.age / self.max_age * 0.6)
+        r, g, b, a = self.centercolor
+        glColor4f(r, g, b, 1 - self.age / self.max_age * 0.6)
         self._filled_circles_xz_vbo.draw(GL_TRIANGLE_FAN)
 
     def _build_filled_circle_xz_vbo(self, radius, centercolor, edgecolor):
@@ -69,6 +85,50 @@ class BeaconAnimation:
         for angle in range(0, 361, 5):
             v.extend([radius * sin(radians(angle)), 0., radius * cos(radians(angle))])
         return vbo.VBO(v)
+
+
+class PacketAnimation:
+    def __init__(self, src_pos, dst_pos, initial_color=(1.0,0.3,0.3,1.)):
+        self.src_pos = src_pos
+        self.dst_pos = dst_pos
+
+        self.age = 0.
+        self.max_age = .5
+        self.dead = False
+        self.initial_color = initial_color
+
+    def tick(self, dt):
+        if not self.dead:
+            self.age += dt
+            if self.age > self.max_age:
+                self.dead = True
+
+    def render(self):
+        r, g, b, a = self.initial_color
+        d = self.age / self.max_age
+        glColor4f(r, g, b, 1 - d * 0.7)
+        glLineWidth(2.)
+
+        p1 = self.src_pos
+        p2 = self.dst_pos
+        a = atan2(p2[0] - p1[0], p2[2] - p1[2])
+        r = 0.15
+        aa = radians(140.) # angle of attack
+
+        glPushMatrix()
+        x, y, z = p1[0] + (p2[0] - p1[0]) * d, p1[1] + (p2[1] - p1[1]) * d, p1[2] + (p2[2] - p1[2]) * d
+        glTranslatef(x, y, z)
+        glBegin(GL_TRIANGLES)
+
+        x, y, z = sin(a) * r, 0., cos(a) * r
+        glVertex3f(x, y, z)
+        x, z = sin(a - aa) * r, cos(a - aa) * r
+        glVertex3f(x, y, z)
+        x, z = sin(a + aa) * r, cos(a + aa) * r
+        glVertex3f(x, y, z)
+
+        glEnd()
+        glPopMatrix()
 
 
 class Link:
@@ -83,11 +143,18 @@ class Link:
         self._busy_age = 0.
         #self._reduction_v = 0.1
 
-    def poke(self, src_node=None):
+        self._animations = []
+
+    def poke(self, src_node=None, packet_color=None):
         """ tell the link that a packet just went through. used to calc the rendered link line usage/width """
         self._usage += 1
         self._usage = min(10., self._usage)
         self._just_poked = True
+        if not packet_color:
+            packet_color = (1.0, 0.3, 0.3, 1.)
+        if src_node:
+            dst_node = self.node1 if src_node == self.node2 else self.node2
+            self._animations.append( PacketAnimation(src_node.pos, dst_node.pos, packet_color) )
 
     def poke_busy(self, src_node=None):
         self._link_busy = True
@@ -101,6 +168,10 @@ class Link:
             if self._busy_age > self._busy_max_age:
                 self._link_busy = False
         self._just_poked = False
+
+        for anim in self._animations:
+            anim.tick(dt)
+        self._animations = [anim for anim in self._animations if not anim.dead]
 
     def render(self):
         if self._usage:
@@ -118,21 +189,28 @@ class Link:
             glVertex3f(*self.node2.pos)
             glEnd()
 
+        for anim in self._animations:
+            anim.render()
+
 
 class Node:
-
-    def __init__(self, pos, node_id, gltext):
+    def __init__(self, pos, node_id, color, gltext):
         """pos is a vector.Vector()"""
         self.pos = pos.new()
         self.gltext = gltext
         # screen_pos is set from outside, usually before calling render_overlay. It's a book-keeping value for
         # the Node owner/renderer/editor.
-        self.screen_pos = vector.Vector()
+        self.screen_pos = vector.Vector() # visible screen pos. may be different from wanted_screen_pos
+        #self.wanted_screen_pos = vector.Vector() # future.
         self.mouse_hover = False
         self.selected = False
-        self.inner_color = self._get_node_color(awake=False)
-        #self.radioactive_color = ()
-        self.radioactive_anim = None
+
+        self.node_color = color # the base color
+        #self.inner_color = self._get_node_color(awake=False) # current color
+
+        self.radio_active_color = (0.529, 0.808, 0.980, 1.0)
+        self.radio_active_color_end = (0.529, 0.808, 0.980, 0.0)
+        self.radio_active_anim = None
 
         self.node_id = node_id # "FACE"
         self.node_name = str(node_id)
@@ -147,12 +225,13 @@ class Node:
 
         self._icon_circle_outer_xy_vbo = self._build_filled_circle_xy_vbo(self.radius_pixels)
         self._icon_circle_inner_xy_vbo = self._build_filled_circle_xy_vbo(self.radius_pixels - 2.)
+        self._icon_circle_node_colortag_xy_vbo = self._build_filled_half_circle_xy_vbo(self.radius_pixels - 2., -40., 40., 20)
 
         self._animations = []
 
     def poke_radio(self):
-        self.radioactive_anim = ColorAnimation(max_age=0.2, start_color=(0.529, 0.808, 0.980, 1.0), end_color=(0.529, 0.808, 0.980, 0.))
-        self.append_animation( self.radioactive_anim )
+        self.radio_active_anim = ColorAnimation(max_age=0.2, start_color=self.radio_active_color, end_color=self.radio_active_color_end)
+        self.append_animation( self.radio_active_anim )
 
     def append_animation(self, anim_obj):
         self._animations.append(anim_obj)
@@ -175,34 +254,48 @@ class Node:
     def render_overlay(self):
         """Render the iconified representation at self.screen_pos screen-coordinates."""
         s = self.screen_pos
+
+        if 1: # use restless beacon animation
+            for anim in self._animations:
+                if isinstance(anim, BeaconAnimation):
+                    s = s.new()
+                    d = 3.
+                    s.add(vector.Vector((random.random() * d - d*0.5, random.random() * d - d*0.5, 0.)))
+                    break
+
         glDisable(GL_TEXTURE_2D)
 
         glPushMatrix()
         glTranslatef(*s)
 
-        if "radiopowerstate" in self.attrs:
-            self.inner_color = self._get_node_color(awake=self.attrs["radiopowerstate"])
-        else:
-            self.inner_color = self._get_node_color(awake=False)
         lighter = (0.1, 0.1, 0.1, 1.0)
+        inner_color = (0.8, 0.8, 0.8, 1.0)
+
+        if self.attrs.get("radiopowerstate"):
+            inner_color = self.radio_active_color
+
+        #inner_color = self.node_color
 
         if self.selected:
             outer_color = (1., .4, .4, 1.)
-            self.inner_color = tuple(sum(x) for x in zip(self.inner_color, lighter))
+        #    inner_color = tuple(sum(x) for x in zip(self.node_color, lighter))
         elif self.mouse_hover:
             outer_color = (1., 1., 1., 1.)
-            self.inner_color = tuple(sum(x) for x in zip(self.inner_color, lighter))
+        #    inner_color = tuple(sum(x) for x in zip(self.node_color, lighter))
         else:
             outer_color = (1., 1., 1., 1.)
 
         glColor4f(*outer_color)
         self._icon_circle_outer_xy_vbo.draw(GL_TRIANGLE_FAN)
-        glColor4f(*self.inner_color)
+        glColor4f(*inner_color)
         self._icon_circle_inner_xy_vbo.draw(GL_TRIANGLE_FAN)
 
-        if self.radioactive_anim and not self.radioactive_anim.dead:
-            glColor4f(*self.radioactive_anim.cur_color)
+        if self.radio_active_anim and not self.radio_active_anim.dead:
+            glColor4f(*self.radio_active_anim.cur_color)
             self._icon_circle_inner_xy_vbo.draw(GL_TRIANGLE_FAN)
+
+        glColor4f(*self.node_color)
+        self._icon_circle_node_colortag_xy_vbo.draw(GL_TRIANGLE_FAN)
 
         glPopMatrix()
 
@@ -211,9 +304,11 @@ class Node:
 
         h = self.gltext.height * 2 + 2
 
-        for key, val in self.attrs.items():
-            if key.startswith("etx_data"):
-                self.gltext.drawmm("%s %s" % (key[9:], val), s[0], s[1] + h, bgcolor=(0,0,0,.3), fgcolor=(1.3,1.3,1.3,1.), z=s[2])
+        #for key, val in self.attrs.items():
+            #if key.startswith("etx_data"):
+        if "etx_table" in self.attrs:
+            for etx in self.attrs["etx_table"]:
+                self.gltext.drawmm(etx, s[0], s[1] + h, bgcolor=(0,0,0,.3), fgcolor=(1.3,1.3,1.3,1.), z=s[2])
                 h += self.gltext.height
 
         if "ctpf_buf_used" in self.attrs and "ctpf_buf_capacity" in self.attrs:
@@ -223,7 +318,7 @@ class Node:
         if awake:
             return 0.529, 0.808, 0.980, 1.0
         else:
-            return 0.8, 0.8, 0.8, 1.0
+            return self.node_color
 
     def _render_progress_bar_mm(self, x, y, z, w, name, capacity, used):
         """ w - width of the progress bar without the frame """
@@ -287,6 +382,17 @@ class Node:
             v.extend([radius * sin(radians(angle)), radius * cos(radians(angle)), 0.])
         return vbo.VBO(v)
 
+    def _build_filled_half_circle_xy_vbo(self, radius, start_angle, end_angle, num_steps):
+        """Build a vbo for the text background. Used with pixel projection. Meant to be rendered with GL_TRIANGLE_FAN."""
+        v = [0., 0., 0.]
+        angle = start_angle
+        start_angle = radians(start_angle)
+        end_angle = radians(end_angle)
+        for i in range(num_steps):
+            angle = start_angle + float(end_angle - start_angle) / (num_steps - 1) * i
+            v.extend([radius * sin(angle), -radius * cos(angle), 0.])
+        return vbo.VBO(v)
+
 
 class NodeEditor:
     def __init__(self, mouse, gltext, conf):
@@ -304,17 +410,25 @@ class NodeEditor:
         self.selected_pos_ofs = vector.Vector()
 
         h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
-        # make a spiral of nodes
         r = 1.
         for i in range(10):
             a = float(i) / (r + 10) * 15.
             x, y = r * math.sin(a), r * math.cos(a)
             r += 0.5
-            n = Node( vector.Vector((x, h, y)), i + 1, gltext )
+            n = Node( vector.Vector((x, h, y)), i + 1, self._get_node_color(i+1), gltext )
             self.append_node(n)
 
         # n = Node( vector.Vector((0., h, 0.)), 1, gltext ); self.append_node(n)
         # n = Node( vector.Vector((1., h, 0.)), 2, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((2., h, -1.)), 3, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((-2., h, 2.)), 4, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((-1., h, 2.)), 5, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((-2., h, 1.)), 6, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((-1., h, 0.)), 7, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((-1.5, h, -1.)), 8, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((0.5, h, 1.)), 9, gltext ); self.append_node(n)
+        # n = Node( vector.Vector((-1.4, h, 0.5)), 10, gltext ); self.append_node(n)
+        #n.attrs["etx"] = 44
 
         self.s1 = Socket(SUB)
         self.s1.connect('tcp://127.0.0.1:55555')
@@ -333,6 +447,30 @@ class NodeEditor:
             self.links_dict[(src_node, dst_node)] = link
             return link
 
+    def _get_node_color(self, origin_node_id):
+        if origin_node_id == 10:
+            return 0.753, 0.753, 0.753, 1.
+        if origin_node_id == 9:
+            return 0.824, 0.412, 0.118, 1.
+        if origin_node_id == 8:
+            return 1.000, 0.000, 1.000, 1.
+        if origin_node_id == 7:
+            return 1.000, 1.000, 0.000, 1.
+        if origin_node_id == 6:
+            return 1.000, 0.627, 0.478, 1.
+        if origin_node_id == 5:
+            return 0.498, 1.000, 0.000, 1.
+        if origin_node_id == 4:
+            return 0.000, 1.000, 1.000, 1.
+        if origin_node_id == 3:
+            return 1.000, 0.922, 0.804, 1.
+        if origin_node_id == 2:
+            return 0.871, 0.722, 0.529, 1.
+        if origin_node_id == 1:
+            return 0.000, 0.749, 1.000, 1.
+
+        return 0.8, 0.8, 0.8, 1.0
+
     def append_node(self, node):
         assert node.node_id not in self.nodes_dict
         self.nodes.append(node)
@@ -347,25 +485,29 @@ class NodeEditor:
         try:
             while 1:
                 d = self.s1.recv(flags=DONTWAIT)
+                d = d.strip()
                 if d:
                     if d.startswith("data etx"):
-                        # ['data', 'etx', '0001000000000200', 'node', '0A', 'parent', '8', 'etx', '10', 'retx', '74']
+                        # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
                         d = d.split()
-                        llog.info(d)
+                        #llog.info(d)
                         node_id = int(d[4], 16)
 
                         # filter out empty rows
-                        if int(d[6]) != 0xFFFF:
-                            if d[8].startswith("NO_ROUTE"):
-                                d[8] = "NO"
+                        if int(d[8]) != 0xFFFF:
+                            if d[10].startswith("NO_ROUTE"):
                                 d[10] = "NO"
-                            etx_attr = "etx_data %d" % int(d[6])
-                            self.nodes_dict[node_id].attrs[etx_attr] = "e%s r%s" % (d[8], d[10])
+                                d[12] = "NO"
+
+                            if int(d[6]) == 0:
+                                self.nodes_dict[node_id].attrs["etx_table"] = []
+
+                            self.nodes_dict[node_id].attrs["etx_table"].append("%s e%s r%s" % (d[8], d[10], d[12]))
 
                     elif d.startswith("event radiopowerstate"):
                         # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
                         d = d.split()
-                        llog.info(d)
+                        #llog.info(d)
                         node_id = int(d[4], 16)
                         radiopowerstate = int(d[6], 16)
                         self.nodes_dict[node_id].attrs["radiopowerstate"] = radiopowerstate
@@ -374,15 +516,16 @@ class NodeEditor:
                     elif d.startswith("event beacon"):
                         # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
                         d = d.split()
-                        llog.info(d)
+                        #llog.info(d)
                         node_id = int(d[4], 16)
+                        options = int(d[6], 16)
                         parent = int(d[8], 16)
-                        self.nodes_dict[node_id].append_animation(BeaconAnimation())
+                        self.nodes_dict[node_id].append_animation(BeaconAnimation(options))
                         self.nodes_dict[node_id].attrs["parent"] = parent
-                    elif d.startswith("event packet_to_activemessage"):
+                    elif d.startswith("event packet_to_activemessage") and 0:
                         # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
                         d = d.split()
-                        llog.info(d)
+                        #llog.info(d)
                         src_node_id = int(d[4], 16)
                         dst_node_id = int(d[6], 16)
                         amid = int(d[8], 16)
@@ -391,9 +534,26 @@ class NodeEditor:
                             dst_node = self.nodes_dict[dst_node_id]
                             link = self._get_link(src_node, dst_node)
                             link.poke(src_node)
+                    elif d.startswith("event send_ctp_packet"):
+                        # event send_ctp_packet 0:0:38.100017602 node 0x0003 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
+                        # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
+                        llog.info(d)
+                        d = d.split()
+
+                        src_node_id = int(d[4], 16)
+                        dst_node_id = int(d[6], 16)
+                        origin_node_id = int(d[8], 16)
+                        sequence_num = int(d[10])
+                        amid = int(d[12], 16)
+                        thl = int(d[14])
+
+                        src_node = self.nodes_dict[src_node_id]
+                        dst_node = self.nodes_dict[dst_node_id]
+                        link = self._get_link(src_node, dst_node)
+                        link.poke(src_node, packet_color=self._get_node_color(origin_node_id))
                     elif d.startswith("event packet_to_model_busy"):
                         d = d.split()
-                        llog.info(d)
+                        #llog.info(d)
                         src_node_id = int(d[4], 16)
                         dst_node_id = int(d[6], 16)
                         if dst_node_id != 0xFFFF: # filter out broadcasts
@@ -403,7 +563,7 @@ class NodeEditor:
                             link.poke_busy(src_node)
                     elif d.startswith("data ctpf_buf_size"):
                         d = d.split()
-                        llog.info(d)
+                        #llog.info(d)
                         node_id = int(d[4], 16)
                         used = int(d[6])
                         capacity = int(d[8])
@@ -420,7 +580,8 @@ class NodeEditor:
     def _render_links_to_parents(self):
         glLineWidth(1.)
         glColor4f(0.4, 0.4, 0.4, 1.)
-        # make this pattern: "1111_11_1______"
+
+        # 1111_11_1______
         glLineStipple(2, 1+2+4+8+32+64+256)
         glEnable(GL_LINE_STIPPLE)
         glLineWidth(2.)
@@ -437,9 +598,9 @@ class NodeEditor:
         glDisable(GL_LINE_STIPPLE)
 
     def render(self):
-        self._render_links_to_parents()
         for link in self.links:
             link.render()
+        self._render_links_to_parents()
         for node in self.nodes:
             node.render()
 
