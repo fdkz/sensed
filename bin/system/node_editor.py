@@ -212,8 +212,8 @@ class Node:
         self.radio_active_color_end = (0.529, 0.808, 0.980, 0.0)
         self.radio_active_anim = None
 
-        self.node_id = node_id # "FACE"
-        self.node_name = str(node_id)
+        self.node_id = node_id # 0xFACE
+        self.node_name = "%04X" % node_id
 
         self.attrs = {}
 
@@ -409,14 +409,14 @@ class NodeEditor:
         self.selected = None
         self.selected_pos_ofs = vector.Vector()
 
-        h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
-        r = 1.
-        for i in range(10):
-            a = float(i) / (r + 10) * 15.
-            x, y = r * math.sin(a), r * math.cos(a)
-            r += 0.5
-            n = Node( vector.Vector((x, h, y)), i + 1, self._get_node_color(i+1), gltext )
-            self.append_node(n)
+        # h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
+        # r = 1.
+        # for i in range(10):
+        #     a = float(i) / (r + 10) * 15.
+        #     x, y = r * math.sin(a), r * math.cos(a)
+        #     r += 0.5
+        #     n = Node( vector.Vector((x, h, y)), i + 1, self._get_node_color(i+1), gltext )
+        #     self.append_node(n)
 
         # n = Node( vector.Vector((0., h, 0.)), 1, gltext ); self.append_node(n)
         # n = Node( vector.Vector((1., h, 0.)), 2, gltext ); self.append_node(n)
@@ -448,25 +448,26 @@ class NodeEditor:
             return link
 
     def _get_node_color(self, origin_node_id):
-        if origin_node_id == 10:
-            return 0.753, 0.753, 0.753, 1.
+        origin_node_id %= 10
         if origin_node_id == 9:
-            return 0.824, 0.412, 0.118, 1.
+            return 0.753, 0.753, 0.753, 1.
         if origin_node_id == 8:
-            return 1.000, 0.000, 1.000, 1.
+            return 0.824, 0.412, 0.118, 1.
         if origin_node_id == 7:
-            return 1.000, 1.000, 0.000, 1.
+            return 1.000, 0.000, 1.000, 1.
         if origin_node_id == 6:
-            return 1.000, 0.627, 0.478, 1.
+            return 1.000, 1.000, 0.000, 1.
         if origin_node_id == 5:
-            return 0.498, 1.000, 0.000, 1.
+            return 1.000, 0.627, 0.478, 1.
         if origin_node_id == 4:
-            return 0.000, 1.000, 1.000, 1.
+            return 0.498, 1.000, 0.000, 1.
         if origin_node_id == 3:
-            return 1.000, 0.922, 0.804, 1.
+            return 0.000, 1.000, 1.000, 1.
         if origin_node_id == 2:
-            return 0.871, 0.722, 0.529, 1.
+            return 1.000, 0.922, 0.804, 1.
         if origin_node_id == 1:
+            return 0.871, 0.722, 0.529, 1.
+        if origin_node_id == 0:
             return 0.000, 0.749, 1.000, 1.
 
         return 0.8, 0.8, 0.8, 1.0
@@ -475,6 +476,19 @@ class NodeEditor:
         assert node.node_id not in self.nodes_dict
         self.nodes.append(node)
         self.nodes_dict[node.node_id] = node
+
+    def get_create_node(self, node_id):
+        if node_id in self.nodes_dict:
+            return self.nodes_dict[node_id]
+        else:
+            h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
+            r = 1.
+            a = float(len(self.nodes)) / (r + 10) * 15.
+            x, y = r * math.sin(a), r * math.cos(a)
+            r += 0.5
+            n = Node( vector.Vector((x, h, y)), node_id, self._get_node_color(node_id), self.gltext )
+            self.append_node(n)
+            return n
 
     def tick(self, dt, keys):
         for link in self.links:
@@ -500,9 +514,9 @@ class NodeEditor:
                                 d[12] = "NO"
 
                             if int(d[6]) == 0:
-                                self.nodes_dict[node_id].attrs["etx_table"] = []
+                                self.get_create_node(node_id).attrs["etx_table"] = []
 
-                            self.nodes_dict[node_id].attrs["etx_table"].append("%s e%s r%s" % (d[8], d[10], d[12]))
+                            self.get_create_node(node_id).attrs["etx_table"].append("0x%04X e%s r%s" % (int(d[8]), d[10], d[12]))
 
                     elif d.startswith("event radiopowerstate"):
                         # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
@@ -510,9 +524,9 @@ class NodeEditor:
                         #llog.info(d)
                         node_id = int(d[4], 16)
                         radiopowerstate = int(d[6], 16)
-                        self.nodes_dict[node_id].attrs["radiopowerstate"] = radiopowerstate
+                        self.get_create_node(node_id).attrs["radiopowerstate"] = radiopowerstate
                         if radiopowerstate:
-                            self.nodes_dict[node_id].poke_radio()
+                            self.get_create_node(node_id).poke_radio()
                     elif d.startswith("event beacon"):
                         # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
                         d = d.split()
@@ -520,8 +534,8 @@ class NodeEditor:
                         node_id = int(d[4], 16)
                         options = int(d[6], 16)
                         parent = int(d[8], 16)
-                        self.nodes_dict[node_id].append_animation(BeaconAnimation(options))
-                        self.nodes_dict[node_id].attrs["parent"] = parent
+                        self.get_create_node(node_id).append_animation(BeaconAnimation(options))
+                        self.get_create_node(node_id).attrs["parent"] = parent
                     elif d.startswith("event packet_to_activemessage") and 0:
                         # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
                         d = d.split()
@@ -530,8 +544,8 @@ class NodeEditor:
                         dst_node_id = int(d[6], 16)
                         amid = int(d[8], 16)
                         if dst_node_id != 0xFFFF: # filter out broadcasts
-                            src_node = self.nodes_dict[src_node_id]
-                            dst_node = self.nodes_dict[dst_node_id]
+                            src_node = self.get_create_node(src_node_id)
+                            dst_node = self.get_create_node(dst_node_id)
                             link = self._get_link(src_node, dst_node)
                             link.poke(src_node)
                     elif d.startswith("event send_ctp_packet"):
@@ -547,8 +561,8 @@ class NodeEditor:
                         amid = int(d[12], 16)
                         thl = int(d[14])
 
-                        src_node = self.nodes_dict[src_node_id]
-                        dst_node = self.nodes_dict[dst_node_id]
+                        src_node = self.get_create_node(src_node_id)
+                        dst_node = self.get_create_node(dst_node_id)
                         link = self._get_link(src_node, dst_node)
                         link.poke(src_node, packet_color=self._get_node_color(origin_node_id))
                     elif d.startswith("event packet_to_model_busy"):
@@ -557,8 +571,8 @@ class NodeEditor:
                         src_node_id = int(d[4], 16)
                         dst_node_id = int(d[6], 16)
                         if dst_node_id != 0xFFFF: # filter out broadcasts
-                            src_node = self.nodes_dict[src_node_id]
-                            dst_node = self.nodes_dict[dst_node_id]
+                            src_node = self.get_create_node(src_node_id)
+                            dst_node = self.get_create_node(dst_node_id)
                             link = self._get_link(src_node, dst_node)
                             link.poke_busy(src_node)
                     elif d.startswith("data ctpf_buf_size"):
@@ -567,8 +581,8 @@ class NodeEditor:
                         node_id = int(d[4], 16)
                         used = int(d[6])
                         capacity = int(d[8])
-                        self.nodes_dict[node_id].attrs["ctpf_buf_used"] = used
-                        self.nodes_dict[node_id].attrs["ctpf_buf_capacity"] = capacity
+                        self.get_create_node(node_id).attrs["ctpf_buf_used"] = used
+                        self.get_create_node(node_id).attrs["ctpf_buf_capacity"] = capacity
                     else:
                         llog.info(d)
                 else:
