@@ -327,7 +327,7 @@ class Node:
 
         xx = round(x - w/2. - 1.)
         yy = round(y - 1.)
-        w2 = float(w) * used / capacity
+        w2 = float(w) * used / capacity if capacity else 0
 
         glColor4f(0.4, 0.4, 0.4, 1.0)
         glBegin(GL_TRIANGLE_FAN)
@@ -516,7 +516,7 @@ class NodeEditor:
                             if int(d[6]) == 0:
                                 self.get_create_node(node_id).attrs["etx_table"] = []
 
-                            self.get_create_node(node_id).attrs["etx_table"].append("0x%04X e%s r%s" % (int(d[8]), d[10], d[12]))
+                            self.get_create_node(node_id).attrs["etx_table"].append("%04X e%s r%s" % (int(d[8]), d[10], d[12]))
 
                     elif d.startswith("event radiopowerstate"):
                         # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
@@ -602,7 +602,7 @@ class NodeEditor:
         for node in self.nodes:
             parent_id = node.attrs.get("parent")
             if parent_id and parent_id != 0xFFFF:
-                parent_node = self.nodes_dict[parent_id]
+                parent_node = self.get_create_node(parent_id)
 
                 glBegin(GL_LINES)
                 glVertex3f(*parent_node.pos)
