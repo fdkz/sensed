@@ -2,6 +2,7 @@ import logging
 llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
 
 from math import sin, cos, radians, atan2
+import os
 import json
 import errno
 import math
@@ -213,7 +214,8 @@ class Node:
         self.radio_active_anim = None
 
         self.node_id = node_id # 0xFACE
-        self.node_name = "%04X" % node_id
+        self.node_idstr = "%04X" % node_id
+        self.node_name = ""
 
         self.attrs = {}
 
@@ -300,7 +302,8 @@ class Node:
         glPopMatrix()
 
         glEnable(GL_TEXTURE_2D)
-        self.gltext.drawmm(self.node_name, s[0], s[1], bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=s[2])
+        self.gltext.drawmm(self.node_idstr, s[0], s[1], bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=s[2])
+        self.gltext.drawmm(self.node_name, s[0], s[1] + self.gltext.height, bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=s[2])
 
         h = self.gltext.height * 2 + 2
 
@@ -409,6 +412,11 @@ class NodeEditor:
         self.selected = None
         self.selected_pos_ofs = vector.Vector()
 
+        # saved when closing the windows. loaded at startup.
+        self.session_node_positions = {} # {"0x31FE": (x,y), ..}
+        self.session_filename = os.path.normpath(os.path.join(self.conf.path_database, "session_conf.txt"))
+        self.load_session()
+
         # h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
         # r = 1.
         # for i in range(10):
@@ -448,7 +456,7 @@ class NodeEditor:
             return link
 
     def _get_node_color(self, origin_node_id):
-        origin_node_id %= 10
+        origin_node_id %= 11
         if origin_node_id == 9:
             return 0.753, 0.753, 0.753, 1.
         if origin_node_id == 8:
@@ -469,6 +477,8 @@ class NodeEditor:
             return 0.871, 0.722, 0.529, 1.
         if origin_node_id == 0:
             return 0.000, 0.749, 1.000, 1.
+        if origin_node_id == 0:
+            return 0.500, 0.549, 1.000, 1.
 
         return 0.8, 0.8, 0.8, 1.0
 
@@ -481,14 +491,27 @@ class NodeEditor:
         if node_id in self.nodes_dict:
             return self.nodes_dict[node_id]
         else:
-            h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
-            r = 1.
-            a = float(len(self.nodes)) / (r + 10) * 15.
-            x, y = r * math.sin(a), r * math.cos(a)
-            r += 0.5
-            n = Node( vector.Vector((x, h, y)), node_id, self._get_node_color(node_id), self.gltext )
-            self.append_node(n)
-            return n
+            if node_id not in self.session_node_positions:
+                h = 0.
+                r = 1. + 0.5 * len(self.nodes)
+                a = float(len(self.nodes)) / (r + 10) * 15.
+                x, y = r * math.sin(a), r * math.cos(a)
+                pos = (x, h, y)
+            else:
+                pos = self.session_node_positions[node_id]
+
+            node = Node( vector.Vector(pos), node_id, self._get_node_color(node_id), self.gltext )
+            self.append_node(node)
+            return node
+
+    def get_create_named_node(self, node_id_name):
+        """ Createa node if it doesn't exist yet. Also set its name if given.
+        node_id_name can be "12AB_somename" or "12AB" """
+        n = node_id_name.split("_", 1)
+        node = self.get_create_node(int(n[0], 16))
+        if len(n) == 2:
+            node.node_name = n[1]
+        return node
 
     def tick(self, dt, keys):
         for link in self.links:
@@ -498,93 +521,90 @@ class NodeEditor:
 
         try:
             while 1:
-                d = self.s1.recv(flags=DONTWAIT)
-                d = d.strip()
-                if d:
-                    if d.startswith("data etx"):
+                msg = self.s1.recv(flags=DONTWAIT)
+                msg = msg.strip()
+                if msg:
+                    d = msg.split()
+                    if d[0] == "data" or d[0] == "event":
+
                         # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
-                        d = d.split()
-                        #llog.info(d)
-                        node_id = int(d[4], 16)
+                        # ['data', 'etx', '0001000000000200', 'node', '0A_sniffy', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
+                        node_id_name = d[4]
+                        node = self.get_create_named_node(node_id_name)
 
-                        # filter out empty rows
-                        if int(d[8]) != 0xFFFF:
-                            if d[10].startswith("NO_ROUTE"):
-                                d[10] = "NO"
-                                d[12] = "NO"
+                        if d[0] == "data":
 
-                            if int(d[6]) == 0:
-                                self.get_create_node(node_id).attrs["etx_table"] = []
+                            if d[1] == "etx":
+                                # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
 
-                            self.get_create_node(node_id).attrs["etx_table"].append("%04X e%s r%s" % (int(d[8]), d[10], d[12]))
+                                # filter out empty rows
+                                if int(d[8]) != 0xFFFF:
+                                    if d[10].startswith("NO_ROUTE"):
+                                        d[10] = "NO"
+                                        d[12] = "NO"
 
-                    elif d.startswith("event radiopowerstate"):
-                        # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
-                        d = d.split()
-                        #llog.info(d)
-                        node_id = int(d[4], 16)
-                        radiopowerstate = int(d[6], 16)
-                        self.get_create_node(node_id).attrs["radiopowerstate"] = radiopowerstate
-                        if radiopowerstate:
-                            self.get_create_node(node_id).poke_radio()
-                    elif d.startswith("event beacon"):
-                        # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
-                        d = d.split()
-                        #llog.info(d)
-                        node_id = int(d[4], 16)
-                        options = int(d[6], 16)
-                        parent = int(d[8], 16)
-                        self.get_create_node(node_id).append_animation(BeaconAnimation(options))
-                        self.get_create_node(node_id).attrs["parent"] = parent
-                    elif d.startswith("event packet_to_activemessage") and 0:
-                        # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
-                        d = d.split()
-                        #llog.info(d)
-                        src_node_id = int(d[4], 16)
-                        dst_node_id = int(d[6], 16)
-                        amid = int(d[8], 16)
-                        if dst_node_id != 0xFFFF: # filter out broadcasts
-                            src_node = self.get_create_node(src_node_id)
-                            dst_node = self.get_create_node(dst_node_id)
-                            link = self._get_link(src_node, dst_node)
-                            link.poke(src_node)
-                    elif d.startswith("event send_ctp_packet"):
-                        # event send_ctp_packet 0:0:38.100017602 node 0x0003 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
-                        # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
-                        llog.info(d)
-                        d = d.split()
+                                    if int(d[6]) == 0:
+                                        node.attrs["etx_table"] = []
 
-                        src_node_id = int(d[4], 16)
-                        dst_node_id = int(d[6], 16)
-                        origin_node_id = int(d[8], 16)
-                        sequence_num = int(d[10])
-                        amid = int(d[12], 16)
-                        thl = int(d[14])
+                                    node.attrs["etx_table"].append("%04X e%s r%s" % (int(d[8]), d[10], d[12]))
+                            elif d[1] == "ctpf_buf_size":
+                                used = int(d[6])
+                                capacity = int(d[8])
+                                node.attrs["ctpf_buf_used"] = used
+                                node.attrs["ctpf_buf_capacity"] = capacity
 
-                        src_node = self.get_create_node(src_node_id)
-                        dst_node = self.get_create_node(dst_node_id)
-                        link = self._get_link(src_node, dst_node)
-                        link.poke(src_node, packet_color=self._get_node_color(origin_node_id))
-                    elif d.startswith("event packet_to_model_busy"):
-                        d = d.split()
-                        #llog.info(d)
-                        src_node_id = int(d[4], 16)
-                        dst_node_id = int(d[6], 16)
-                        if dst_node_id != 0xFFFF: # filter out broadcasts
-                            src_node = self.get_create_node(src_node_id)
-                            dst_node = self.get_create_node(dst_node_id)
-                            link = self._get_link(src_node, dst_node)
-                            link.poke_busy(src_node)
-                    elif d.startswith("data ctpf_buf_size"):
-                        d = d.split()
-                        #llog.info(d)
-                        node_id = int(d[4], 16)
-                        used = int(d[6])
-                        capacity = int(d[8])
-                        self.get_create_node(node_id).attrs["ctpf_buf_used"] = used
-                        self.get_create_node(node_id).attrs["ctpf_buf_capacity"] = capacity
-                    else:
-                        llog.info(d)
+                        elif d[0] == "event":
+
+                            if d[1] == "radiopowerstate":
+                                # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
+                                radiopowerstate = int(d[6], 16)
+                                node.attrs["radiopowerstate"] = radiopowerstate
+                                if radiopowerstate:
+                                    node.poke_radio()
+
+                            elif d[1] == "event beacon":
+                                # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
+                                options = int(d[6], 16)
+                                parent = int(d[8], 16)
+                                node.append_animation(BeaconAnimation(options))
+                                node.attrs["parent"] = parent
+
+                            elif d[1] == "event packet_to_activemessage" and 0:
+                                # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
+                                src_node_id = node.node_id
+                                dst_node_id = int(d[6], 16)
+                                amid = int(d[8], 16)
+                                if dst_node_id != 0xFFFF: # filter out broadcasts
+                                    src_node = node
+                                    dst_node = self.get_create_node(dst_node_id)
+                                    link = self._get_link(src_node, dst_node)
+                                    link.poke(src_node)
+
+                            elif d[1] == "event send_ctp_packet":
+                                # event send_ctp_packet 0:0:38.100017602 node 03 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
+                                # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
+                                src_node_id = node.node_id
+                                dst_node_id = int(d[6], 16)
+                                origin_node_id = int(d[8], 16)
+                                sequence_num = int(d[10])
+                                amid = int(d[12], 16)
+                                thl = int(d[14])
+
+                                src_node = node
+                                dst_node = self.get_create_node(dst_node_id)
+                                link = self._get_link(src_node, dst_node)
+                                link.poke(src_node, packet_color=self._get_node_color(origin_node_id))
+
+                            elif d[1] == "event packet_to_model_busy":
+                                src_node_id = node.node_id
+                                dst_node_id = int(d[6], 16)
+                                if dst_node_id != 0xFFFF: # filter out broadcasts
+                                    src_node = node
+                                    dst_node = self.get_create_node(dst_node_id)
+                                    link = self._get_link(src_node, dst_node)
+                                    link.poke_busy(src_node)
+                        else:
+                            llog.info("unknown msg %s", repr(msg))
                 else:
                     break
         except NanoMsgAPIError as e:
@@ -684,6 +704,37 @@ class NodeEditor:
     def _calc_link_quality(self, node1, node2):
         dist = node1.pos.dist(node2.pos)
         return dist
+
+    def load_session(self):
+        """ load node positions. write to self.session_node_positions """
+        try:
+            with open(self.session_filename, "rb") as f:
+                session_conf = json.load(f)
+        except IOError:
+            #log.warning("'%s' file not found" % path)
+            session_conf = None
+
+        # extract node positions from the conf dict
+        if session_conf and "node_positions" in session_conf:
+            c = session_conf.get("node_positions")
+            # convert entries {"0x51AB": (1,2,3), ..} to format {20907, (1,2,3)}
+            self.session_node_positions = {int(k, 16): v for k, v in c.items()}
+
+    def save_session(self):
+        """ save node positions. mix together prev session positions and new positions. """
+        # convert entries {20907: (1,2,3), ..} to format {"0x51AB", (1,2,3)}
+        node_positions_session = {"0x%04X" % k: v for k, v in self.session_node_positions.items()}
+        node_positions_used = {"0x%04X" % n.node_id: (n.pos[0], n.pos[1], n.pos[2]) for n in self.nodes}
+        node_positions_session.update(node_positions_used)
+
+        session_conf = {"node_positions": node_positions_session}
+        txt = json.dumps(session_conf, indent=4, sort_keys=True)
+
+        with open(self.session_filename, "wb") as f:
+            f.write(txt)
+
+    def close(self):
+        self.save_session()
 
     def event(self, event):
         if event.type == SDL_MOUSEMOTION:

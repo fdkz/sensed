@@ -28,7 +28,8 @@ class SubMain:
         self.t_last_autoscreenshot = time.time() - self.AUTOSCREENSHOT_PERIOD + 2.*60
 
     def close(self):
-        pass
+        if self.editor_main:
+            self.editor_main.close()
 
     def run(self):
         self._init()

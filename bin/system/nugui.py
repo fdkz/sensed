@@ -36,13 +36,17 @@ class NuGui:
 
         self.mouse_x = 0.
         self.mouse_y = 0.
-        self.mousedown = False
-        self.mouseclickpos = [0., 0.]
+        self.mousedown = False # left mouse button is down
 
-        self.mouseleftclick = False
+        self.mouseleftclickpos = (-1., -1.) # left button was pressed down at these coordinates
+        self.mouseleftclicked = False # button went down and up. will be set to False on tick.
+        self.mouseleftclick = False # button went down. will be set to False on tick.
+
+        self.slider_mouseleftclickpos = (-1., -1.) # left button was pressed down at these slider handle coordinates
+        self.slider_mouseleftclick_val = 0.
 
         self.id_active = 0 # mouse pressed
-        self.id_hot = 0 # mouse hover
+        self.id_hot = 0    # mouse hover
         self.id_focused = 0
 
         self.hit_clock = 0
@@ -56,6 +60,10 @@ class NuGui:
 
         # the active element consumes keypresses from this queue.
         self.keyqueue = [] # [(character, scancode), ..]
+
+    def active(self):
+        """return True if there's a work-in-progress mouse drag of some ui element."""
+        return bool(self.id_active)
 
     def finish_frame(self):
         # clear focus if there was a mouseclick outside of every gui element
@@ -87,7 +95,7 @@ class NuGui:
         glColor4f(0., 0., 0., 1.)
         self._draw_rect(l.x - 2, l.y - 2, l.w + 4, l.hc + 3)
 
-        if self.mouseleftclick:
+        if self.mouseleftclicked:
             return not self._mouse_is_inside(l.x - 2, l.y - 2, l.w + 4, l.hc + 3)
         return False
 
@@ -145,6 +153,19 @@ class NuGui:
 
         l.hc += self.listbox_item_height
 
+    def _get_element_color(self, id, disabled):
+        """return fgcolor, bgcolor and textcolor. for button frame and background for example."""
+        textcolor = (0., 0., 0., 1.)
+        fgcolor   = (0., 0., 0., 1.)
+        if disabled:
+            textcolor = (0.5, 0.5, 0.5, 1.0)
+            bgcolor   = (0.8, 0.8, 1.0, 0.8)
+        elif self.id_active == id: bgcolor = (1.0, 0.3, 0.3, 0.95)
+        elif self.id_hot    == id: bgcolor = (1.0, 0.7, 0.7, 0.95)
+        else:                      bgcolor = (0.8, 0.8, 1.0, 0.9)
+
+        return fgcolor, bgcolor, textcolor
+
     def button(self, id, x, y, text, w=None, h=None, disabled=False):
         tw, z = self.font.width(text), self.z
         if w is None: w = tw + 10
@@ -160,21 +181,17 @@ class NuGui:
 
         # draw the button
 
-        fgcolor = (0., 0., 0., 1.)
-        if disabled:
-            fgcolor = (0.5, 0.5, 0.5, 8.)
-            glColor4f(0.8, 0.8, 1.,  0.8)
-        elif self.id_active == id: glColor4f(1.,  0.3, 0.3, 0.95)
-        elif self.id_hot    == id: glColor4f(1.,  0.7, 0.7, 0.95)
-        else:                      glColor4f(0.8, 0.8, 1.,  0.9)
+        fgcolor, bgcolor, textcolor = self._get_element_color(id, disabled)
 
         glDisable(GL_TEXTURE_2D)
+        glColor4f(*bgcolor)
         self._draw_filled_rect(x, y, w, h)
 
-        glColor4f(0., 0., 0., 1.)
+        glColor4f(*fgcolor)
         self._draw_rect(x, y, w, h)
         glEnable(GL_TEXTURE_2D)
-        self.font.drawmm(text, x + w / 2., y + h / 2., z = z, fgcolor = fgcolor, bgcolor = (0., 0., 0., 0.))
+        glColor4f(*textcolor)
+        self.font.drawmm(text, x + w / 2., y + h / 2., z = z, fgcolor=textcolor, bgcolor=(0., 0., 0., 0.))
 
         # did the user click the button?
 
@@ -183,6 +200,84 @@ class NuGui:
         return False
 
     def listbox_item_menu(self, id, name, x, y, text): pass
+
+    def slider(self, id, x, y, w, val, val_left, val_right, disabled=False):
+
+        #mx, my = self.mouseclickpos
+        #if self.mousedown:
+        #    self.slider_clickpos = self.mouseclickpos
+        #    self.mouse_x - self.mouseclickpos[0]
+
+
+        handle_wpix = 7. # slider handle width in pixels
+        handle_hpix = 12.
+        val_wpix = w - handle_wpix
+
+
+        # move the slider
+        if self.id_active == id and not self.mouseleftclick:
+            val_dxpix = self.mouse_x - self.mouseleftclickpos[0] #- self.slider_mouseleftclickpos[0]
+            val = self.slider_mouseleftclick_val + val_dxpix / val_wpix * (val_right - val_left)
+
+
+        val = min(val, val_right)
+        val = max(val, val_left)
+        val_pix = (float(val) - val_left) / (val_right - val_left) * val_wpix
+        val_pix += handle_wpix / 2.
+        z = self.z
+
+        #llog.info("x %f y %f val %f w %f", x, y, val, w)
+
+        handle_x = x + val_pix - handle_wpix/2.
+        handle_y = y - handle_hpix/2.
+
+
+        if self._mouse_is_inside(handle_x, handle_y, handle_wpix, handle_hpix):
+            self.id_hot = id
+            if self.mousedown and not self.id_active:
+                self.id_active = id
+                self.id_focused = id
+            if self.mousedown:
+                self.hit_clock = self.current_clock
+
+            # if the button just went down, then record the click position.
+            if self.mouseleftclick:
+                self.slider_mouseleftclickpos = (self.mouse_x - handle_x, self.mouse_y - handle_y)
+                self.slider_mouseleftclick_val = val
+                llog.info("val %f", val)
+
+
+        # self.mouseleftclickpos = (-1., -1.) # left button was pressed down at these coordinates
+        # self.mouseleftclicked = False # button went down and up. will be set to False on tick.
+        # self.mouseleftclick = False # button went down. will be set to False on tick.
+
+        # self.slider_mouseleftclickpos = (-1., -1.) # left button was pressed down at these slider handle coordinates
+
+        # if self._mouse_is_inside(handle_x, handle_y, handle_wpix, handle_hpix):
+        #     self.id_hot = id
+        #     if self.mousedown and not self.id_active:
+        #         self.id_active = id
+        #         self.id_focused = id
+        #     if self.mousedown:
+        #         self.hit_clock = self.current_clock
+
+        fgcolor, bgcolor, textcolor = self._get_element_color(id, disabled)
+
+        glColor4f(*fgcolor)
+        glBegin(GL_LINES)
+        glVertex3f(x,     y + 0.5, z)
+        glVertex3f(x + w, y + 0.5, z)
+        # glVertex3f(x + 0.5,     y + 0.5, z)
+        # glVertex3f(x + 0.5 + w, y + 0.5, z)
+        glEnd()
+
+        glColor4f(*bgcolor)
+        self._draw_filled_rect(handle_x, handle_y, handle_wpix, handle_hpix)
+
+        glColor4f(*fgcolor)
+        self._draw_rect(handle_x, handle_y, handle_wpix, handle_hpix)
+
+        return val
 
     def textentry(self, id, x, y, w, default_text, disabled=False):
         """return (changed, new_text)
@@ -288,8 +383,14 @@ class NuGui:
 
     def set_mouse_button(self, leftmousebutton):
         """ boolean """
-        if self.mousedown and not leftmousebutton:
+        # if left button was pressed
+        if not self.mouseleftclick and leftmousebutton:
+            self.mouseleftclickpos = (self.mouse_x, self.mouse_y)
             self.mouseleftclick = True
+        # if left button was released
+        elif self.mouseleftclickpos and not leftmousebutton:
+            self.mouseleftclicked = True
+
         self.mousedown = leftmousebutton
 
     def tick(self):
@@ -300,6 +401,7 @@ class NuGui:
         if not self.mousedown: self.id_active = 0
         #else:              self.id_active = 0 # -1
         self.mouseleftclick = False
+        self.mouseleftclicked = False
 
     def _draw_filled_rect(self, x, y, w, h):
         z = self.z

@@ -102,8 +102,6 @@ class EditorMain:
 
         self.fps_counter = fps_counter.FpsCounter()
 
-        self.circles = []
-        self.init_circles()
         self._init_gl()
 
         self.floor = floor.Floor()
@@ -114,6 +112,8 @@ class EditorMain:
         self.nugui = nugui.NuGui(self.gltext)
 
         self.node_editor = node_editor.NodeEditor(self, self.gltext, conf)
+
+        self.time_visible = 10. # timepoint of the simulation that is currently visible on screen. can be dragged around with a slider.
 
     #@staticmethod
     def _init_gl(self):
@@ -129,11 +129,6 @@ class EditorMain:
         # for some reason this doesnt work when using multisampling. have to use 4 samples to get a passable result.
         glEnable(GL_LINE_SMOOTH)
         glDisable(GL_LINE_STIPPLE)
-
-    def init_circles(self):
-        #self.circles.append(Circle(-3, 0, 2, (0.5, 0.5, 0.4, 1.)))
-        #self.circles.append(Circle(3, 1, 3, (0.5, 0.5, 1., 1.)))
-        pass
 
     def tick(self, dt, keys):
         """
@@ -188,8 +183,6 @@ class EditorMain:
         glDisable(GL_TEXTURE_2D)
 
         self.floor.render()
-        for c in self.circles:
-            c.render()
 
         self.node_editor.render()
 
@@ -202,8 +195,11 @@ class EditorMain:
         #glTranslatef(0.375, 0.375, 0.0)
         glScalef(1.,1.,-1.)
         glDisable(GL_DEPTH_TEST)
+        glLineWidth(1.)
 
+        self.time_visible = self.nugui.slider(1001, 20, 100, 200, self.time_visible, 150, 250)
         self.node_editor.render_overlay(self.camera, self.camera_ocs, self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels)
+
 
         #glScale(40., 40., 1.)
         #glTranslate(10., 0., -15.)
@@ -274,12 +270,16 @@ class EditorMain:
             self.mouse_y = float(event.motion.y)
             self.nugui.set_mouse_pos(self.mouse_x, self.mouse_y)
             self.mouse_window_coord = (float(event.motion.x), float(event.motion.y))
-            # works only if orthogonal projection is used
-            if self.mouse_lbdown and self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
-                d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
-                                   0.,
-                                   (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
-                self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
+
+            # move the world, but only if nugui is inactive
+            if not self.nugui.active():
+                # works only if orthogonal projection is used
+                if self.mouse_lbdown and self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
+                    d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
+                                       0.,
+                                       (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
+                    self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
+
             self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
 
         elif event.type == SDL_MOUSEWHEEL:
@@ -287,17 +287,24 @@ class EditorMain:
                 self._zoom_view(self.mouse_x, self.mouse_y, self.mouse_zoom_speed * event.wheel.y)
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
-            if event.button.button == SDL_BUTTON_LEFT:
-                self.nugui.set_mouse_button(True)
-                self.mouse_lbdown = True
-                # find object under cursor. if no object, drag the world
-                self.mouse_dragging = True
-                self.object_under_cursor = None
-                self.mouse_floor_coord = self.get_pixel_floor_coord(event.button.x, event.button.y)
-                if self.mouse_floor_coord:
-                    self.mouse_lbdown_floor_coord = self.mouse_floor_coord.new()
-                    self.mouse_lbdown_camera_coord = self.camera_ocs.pos.new()
-                    self.mouse_lbdown_window_coord = (float(event.button.x), float(event.button.y))
+            #llog.info("SDL_MOUSEBUTTONDOWN %i x %i y %i", event.button.button, event.button.x, event.button.y)
+
+            # this 0-check is a libsdl2 bug workaround. at least on macosx when clicking the window titlebar, sdl
+            # will send a SDL_MOUSEBUTTONDOWN event with y=0, but the SDL_MOUSEBUTTONUP never follows! this has
+            # the same effect as a stuck button and the view jumps around as soon as the mouse cursor enters the
+            # window again. so we better ignore every mouseclick with y=0.
+            if event.button.y != 0:
+                if event.button.button == SDL_BUTTON_LEFT:
+                    self.nugui.set_mouse_button(True)
+                    self.mouse_lbdown = True
+                    # find object under cursor. if no object, drag the world
+                    self.mouse_dragging = True
+                    self.object_under_cursor = None
+                    self.mouse_floor_coord = self.get_pixel_floor_coord(event.button.x, event.button.y)
+                    if self.mouse_floor_coord:
+                        self.mouse_lbdown_floor_coord = self.mouse_floor_coord.new()
+                        self.mouse_lbdown_camera_coord = self.camera_ocs.pos.new()
+                        self.mouse_lbdown_window_coord = (float(event.button.x), float(event.button.y))
 
         elif event.type == SDL_MOUSEBUTTONUP:
             if event.button.button == SDL_BUTTON_LEFT:
@@ -400,3 +407,6 @@ class EditorMain:
             return self.floor.intersection(start, direction)
         else:
             return None
+
+    def close(self):
+        self.node_editor.close()
