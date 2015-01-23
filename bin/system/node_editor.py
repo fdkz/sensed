@@ -562,14 +562,14 @@ class NodeEditor:
                                 if radiopowerstate:
                                     node.poke_radio()
 
-                            elif d[1] == "event beacon":
+                            elif d[1] == "beacon":
                                 # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
                                 options = int(d[6], 16)
                                 parent = int(d[8], 16)
                                 node.append_animation(BeaconAnimation(options))
                                 node.attrs["parent"] = parent
 
-                            elif d[1] == "event packet_to_activemessage" and 0:
+                            elif d[1] == "packet_to_activemessage" and 0:
                                 # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
                                 src_node_id = node.node_id
                                 dst_node_id = int(d[6], 16)
@@ -580,7 +580,7 @@ class NodeEditor:
                                     link = self._get_link(src_node, dst_node)
                                     link.poke(src_node)
 
-                            elif d[1] == "event send_ctp_packet":
+                            elif d[1] == "send_ctp_packet":
                                 # event send_ctp_packet 0:0:38.100017602 node 03 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
                                 # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
                                 src_node_id = node.node_id
@@ -595,7 +595,7 @@ class NodeEditor:
                                 link = self._get_link(src_node, dst_node)
                                 link.poke(src_node, packet_color=self._get_node_color(origin_node_id))
 
-                            elif d[1] == "event packet_to_model_busy":
+                            elif d[1] == "packet_to_model_busy":
                                 src_node_id = node.node_id
                                 dst_node_id = int(d[6], 16)
                                 if dst_node_id != 0xFFFF: # filter out broadcasts
