@@ -98,7 +98,8 @@ class NodeEditor:
                     try:
                         # append the packet to timesyncer
                         # get the timestamp.
-                        d = msg.split(None, 4)
+                        d = msg.split(None, 5)
+                        #d = d[1:] # cut off the seqno
                         # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
                         if d[0] == "data" or d[0] == "event":
                             # get nodeid from packet
@@ -113,7 +114,9 @@ class NodeEditor:
                 raise
 
     def handle_packet(self, msg):
+        #llog.info("handle: %s", msg)
         d = msg.split()
+        #d = d[1:] # cut off the seqno
         if d[0] == "data" or d[0] == "event":
 
             #timestamp = float(d[2])

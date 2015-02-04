@@ -11,6 +11,9 @@ random notes:
 
 """
 
+import logging
+llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
+
 import time
 
 
@@ -122,9 +125,9 @@ class SyncBuffer:
         else:
             assert self.current_time != None
             self.wanted_time += dt
-            new_current_time = min(self.wanted_time, self.end_time)
             packet_list = self.get_packets(self.current_time, self.wanted_time)
-            self.current_time = new_current_time
+            #llog.info("get from delta current_time %.3f wanted_time %.3f len %i", self.current_time, self.wanted_time, len(packet_list))
+            self.current_time = min(self.wanted_time, self.end_time)
             return packet_list
 
     def get_current_time(self):
@@ -166,6 +169,8 @@ class SyncBuffer:
         # first, get keyframes that contain the start/end times.
         keyframeslot1, i1 = self._get_prev_keyframeslot(start_time)
         keyframeslot2, i2 = self._get_prev_keyframeslot(end_time)
+        if keyframeslot1 == keyframeslot2:
+            keyframeslot2 = None
 
         # for cache..
         #if self._prev_get_packets_end_time == start_time:
