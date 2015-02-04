@@ -57,25 +57,6 @@ class Link:
             anim.tick(dt)
         self._animations = [anim for anim in self._animations if not anim.dead]
 
-    def render(self):
-        if self._usage:
-            glLineWidth(self._usage)
-            r, g, b = 0.4, 0.4, 0.4
-            if self._link_busy:
-                r += r * (self._busy_age / self._busy_max_age)
-                g += g * (self._busy_age / self._busy_max_age)
-            if self._just_poked:
-                r, g, b = 0., 0., 0.
-            glColor4f(r, g, b, 1.)
-
-            glBegin(GL_LINES)
-            glVertex3f(*self.node1.pos)
-            glVertex3f(*self.node2.pos)
-            glEnd()
-
-        for anim in self._animations:
-            anim.render()
-
 
 class Node:
     def __init__(self, pos, node_id, color):

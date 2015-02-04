@@ -19,16 +19,24 @@ import vector
 import world
 import renderers
 import animations
+import syncbuffer
 
 from nanomsg import Socket, SUB, SUB_SUBSCRIBE, DONTWAIT, NanoMsgAPIError
 
 
 class NodeEditor:
+    STATE_PLAYBACK_ON_EDGE = 0x01 #
+    STATE_PLAYBACK = 0x02 # playback from random place
+
+    # seek
+    # get_delta_packets(dt)
+    # get_current_timestamp
+
     def __init__(self, mouse, gltext, conf):
         self.conf = conf
         self.mouse = mouse  # TODO: use a special mouse object instead of the editor_main object directly.
         self.gltext = gltext
-        self.world = world.World(self.conf)
+        self.world = world.World("ff", self.conf)
 
         self.mouse_hover = False
         self.mouse_dragging = False
@@ -41,6 +49,12 @@ class NodeEditor:
         # saved when closing the windows. loaded at startup.
         self.session_filename = os.path.normpath(os.path.join(self.conf.path_database, "session_conf.txt"))
         self.load_session()
+
+        self.recording = True
+
+        self.syncbuffer = syncbuffer.SyncBuffer(sync_window_seconds=2.)
+
+#        self.world_timeline = [(packetstream_timestamp, serialized_world_jsn), ...]
 
         # h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
         # r = 1.
@@ -57,103 +71,135 @@ class NodeEditor:
 
     def tick(self, dt, keys):
         self.world.tick(dt)
+        self.net_poll_packets()
+        self.syncbuffer.tick()
 
+        # there are two states
+        # STATE_
+        # aga kui ma kerin ja m2ngin kiiremini ja siis l6ppu j6uan? kuidas seda detektida?
+        # if last requested time > last available time: STATE_PLAYBACK_ON_EDGE
+
+        packets = self.syncbuffer.get_delta_packets(dt)
+        for p in packets:
+            self.handle_packet(p[1])
+
+    def net_poll_packets(self):
         try:
             # handle all incoming packets
             # TODO: sync packets by timestamp. sync time configurable. 5 seconds default?
-            # print error if a packet arrives out of sync? how to denote this info?
+            #       print error if a packet arrives out of sync? how to denote this info?
             while 1:
                 msg = self.s1.recv(flags=DONTWAIT)
+                if not msg:
+                    break
+
                 msg = msg.strip()
                 if msg:
-                    d = msg.split()
-                    if d[0] == "data" or d[0] == "event":
-
+                    try:
+                        # append the packet to timesyncer
+                        # get the timestamp.
+                        d = msg.split(None, 4)
                         # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
-                        # ['data', 'etx', '0001000000000200', 'node', '0A_sniffy', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
-                        node_id_name = d[4]
-                        node = self.world.get_create_named_node(node_id_name)
+                        if d[0] == "data" or d[0] == "event":
+                            # get nodeid from packet
+                            node_id_name = d[4]
+                            nodeid = int(node_id_name.split("_", 1)[0], 16)
+                            self.syncbuffer.put_packet(float(d[2]), msg, nodeid)
+                    except:
+                        llog.exception("")
 
-                        if d[0] == "data":
-
-                            if d[1] == "etx":
-                                # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
-
-                                # filter out empty rows
-                                if int(d[8]) != 0xFFFF:
-                                    if d[10].startswith("NO_ROUTE"):
-                                        d[10] = "NO"
-                                        d[12] = "NO"
-
-                                    # when receiving entry with index 0, then clear out the whole table.
-                                    if int(d[6]) == 0:
-                                        node.attrs["etx_table"] = []
-
-                                    node.attrs["etx_table"].append("%04X e%s r%s" % (int(d[8]), d[10], "00" if d[12] == "0" else d[12]))
-                            elif d[1] == "ctpf_buf_size":
-                                used = int(d[6])
-                                capacity = int(d[8])
-                                node.attrs["ctpf_buf_used"] = used
-                                node.attrs["ctpf_buf_capacity"] = capacity
-
-                        elif d[0] == "event":
-
-                            if d[1] == "radiopowerstate":
-                                # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
-                                radiopowerstate = int(d[6], 16)
-                                node.attrs["radiopowerstate"] = radiopowerstate
-                                if radiopowerstate:
-                                    node.poke_radio()
-
-                            elif d[1] == "beacon":
-                                # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
-                                options = int(d[6], 16)
-                                parent = int(d[8], 16)
-                                node.append_animation(animations.BeaconAnimation(options))
-                                node.attrs["parent"] = parent
-
-                            elif d[1] == "packet_to_activemessage" and 0:
-                                # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
-                                src_node_id = node.node_id
-                                dst_node_id = int(d[6], 16)
-                                amid = int(d[8], 16)
-                                if dst_node_id != 0xFFFF: # filter out broadcasts
-                                    src_node = node
-                                    dst_node = self.world.get_create_node(dst_node_id)
-                                    link = self.world.get_link(src_node, dst_node)
-                                    link.poke(src_node)
-
-                            elif d[1] == "send_ctp_packet":
-                                # event send_ctp_packet 0:0:38.100017602 node 03 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
-                                # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
-                                src_node_id = node.node_id
-                                dst_node_id = int(d[6], 16)
-                                origin_node_id = int(d[8], 16)
-                                sequence_num = int(d[10])
-                                amid = int(d[12], 16)
-                                thl = int(d[14])
-
-                                src_node = node
-                                dst_node = self.world.get_create_node(dst_node_id)
-                                link = self.world.get_link(src_node, dst_node)
-                                # TODO: refactor node color
-                                link.poke(src_node, packet_color=self.world.get_node_color(origin_node_id))
-
-                            elif d[1] == "packet_to_model_busy":
-                                src_node_id = node.node_id
-                                dst_node_id = int(d[6], 16)
-                                if dst_node_id != 0xFFFF: # filter out broadcasts
-                                    src_node = node
-                                    dst_node = self.world.get_create_node(dst_node_id)
-                                    link = self.world.get_link(src_node, dst_node)
-                                    link.poke_busy(src_node)
-                        else:
-                            llog.info("unknown msg %s", repr(msg))
-                else:
-                    break
         except NanoMsgAPIError as e:
             if e.errno != errno.EAGAIN:
                 raise
+
+    def handle_packet(self, msg):
+        d = msg.split()
+        if d[0] == "data" or d[0] == "event":
+
+            #timestamp = float(d[2])
+            #timesyncer.append(timestamp, msg)
+
+            # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
+            # ['data', 'etx', '0001000000000200', 'node', '0A_sniffy', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
+            node_id_name = d[4]
+            node = self.world.get_create_named_node(node_id_name)
+
+            if d[0] == "data":
+
+                if d[1] == "etx":
+                    # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
+
+                    # filter out empty rows
+                    if int(d[8]) != 0xFFFF:
+                        if d[10].startswith("NO_ROUTE"):
+                            d[10] = "NO"
+                            d[12] = "NO"
+
+                        # when receiving entry with index 0, then clear out the whole table.
+                        if int(d[6]) == 0:
+                            node.attrs["etx_table"] = []
+
+                        attrs_etx_table = node.attrs.get("etx_table", [])
+                        attrs_etx_table.append("%04X e%s r%s" % (int(d[8]), d[10], "00" if d[12] == "0" else d[12]))
+                elif d[1] == "ctpf_buf_size":
+                    used = int(d[6])
+                    capacity = int(d[8])
+                    node.attrs["ctpf_buf_used"] = used
+                    node.attrs["ctpf_buf_capacity"] = capacity
+
+            elif d[0] == "event":
+
+                if d[1] == "radiopowerstate":
+                    # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
+                    radiopowerstate = int(d[6], 16)
+                    node.attrs["radiopowerstate"] = radiopowerstate
+                    if radiopowerstate:
+                        node.poke_radio()
+
+                elif d[1] == "beacon":
+                    # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
+                    options = int(d[6], 16)
+                    parent = int(d[8], 16)
+                    node.append_animation(animations.BeaconAnimation(options))
+                    node.attrs["parent"] = parent
+
+                elif d[1] == "packet_to_activemessage" and 0:
+                    # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
+                    src_node_id = node.node_id
+                    dst_node_id = int(d[6], 16)
+                    amid = int(d[8], 16)
+                    if dst_node_id != 0xFFFF: # filter out broadcasts
+                        src_node = node
+                        dst_node = self.world.get_create_node(dst_node_id)
+                        link = self.world.get_link(src_node, dst_node)
+                        link.poke(src_node)
+
+                elif d[1] == "send_ctp_packet":
+                    # event send_ctp_packet 0:0:38.100017602 node 03 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
+                    # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
+                    src_node_id = node.node_id
+                    dst_node_id = int(d[6], 16)
+                    origin_node_id = int(d[8], 16)
+                    sequence_num = int(d[10])
+                    amid = int(d[12], 16)
+                    thl = int(d[14])
+
+                    src_node = node
+                    dst_node = self.world.get_create_node(dst_node_id)
+                    link = self.world.get_link(src_node, dst_node)
+                    # TODO: refactor node color
+                    link.poke(src_node, packet_color=self.world.get_node_color(origin_node_id))
+
+                elif d[1] == "packet_to_model_busy":
+                    src_node_id = node.node_id
+                    dst_node_id = int(d[6], 16)
+                    if dst_node_id != 0xFFFF: # filter out broadcasts
+                        src_node = node
+                        dst_node = self.world.get_create_node(dst_node_id)
+                        link = self.world.get_link(src_node, dst_node)
+                        link.poke_busy(src_node)
+            else:
+                llog.info("unknown msg %s", repr(msg))
 
     def _render_links_to_parents(self):
         glLineWidth(1.)

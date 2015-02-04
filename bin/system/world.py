@@ -5,12 +5,14 @@ Just holds world_objects and can serialise/deserialise state. No rendering.
 import logging
 llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
 
+import math
+
 import vector
 import world_objects
 
 
 class World:
-    def __init__(self, conf):
+    def __init__(self, serialized_world_jsn, conf):
         self.conf = conf
         self.nodes = []
         self.links = []
@@ -19,6 +21,27 @@ class World:
 
         # saved when closing the windows. loaded at startup.
         self.session_node_positions = {} # {"0x31FE": (x,y), ..}
+
+#        self.deserialize_world(serialized_world_jsn)
+
+    def serialize_node(self, node):
+        pass
+
+    def serialize_link(self, node):
+        pass
+
+    def serialize_world(self):
+        pass
+
+    def deserialize_node(self, jsn):
+        pass
+
+    def deserialize_link(self, jsn):
+        pass
+
+    def deserialize_world(self, jsn):
+        self.links = []
+        self.nodes = []
 
     def get_link(self, src_node, dst_node):
         """ create a new link object if not found from self.links.
