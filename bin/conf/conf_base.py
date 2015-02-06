@@ -18,6 +18,9 @@ class Conf: pass
 # configuration-dictionary.
 c = Conf()
 
+# how many seconds to wait for data to hold on sync buffer for time-sorting.
+c.sync_depth_seconds = 4.
+
 # all paths can be absolute ("/home/user/prog/bin/data"), or relative to the exe dir ("../bin/data")
 
 # data that should be upgraded with the program. voice files, images, fonts..
