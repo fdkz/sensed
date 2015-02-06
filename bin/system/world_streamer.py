@@ -9,6 +9,19 @@ random notes:
     load
     record
 
+
+logic of keyframes:
+
+    * next keyframe can't have the same timestamp as prev keyframe.
+    * last packet in prev keyframe can have the same timestamp as first packet in the new keyframe.
+
+You'll also have to use two world instances - one for playback/rewind/forward, and the other for keyframe
+generation. The other world instance is never visible and can skip generating animation objects and so on.
+
+
+# NB! this system DROPS packets that arrive later than the sync_window_seconds.
+NB! this system OVERWRITES packet timestamps for packets that arrive later than the sync_window_seconds.
+
 """
 
 import logging
@@ -31,8 +44,79 @@ class SyncBuffer:
         """ sync_window_seconds - will only return entries that are older than this.
         if None, then return entries as soon as they arrive; no sorting. """
         self.sync_window_seconds = sync_window_seconds
+        self.streams = {} # stream_id: packets_list
+        self.sorted_packets = [] # [(timestamp, packet), ..]
+        self.last_sorted_time = None
+
+    def tick(self):
+        """ Run the sorting algorithm on the received packets given to put_packet() """
+        # get all older than sync_window_seconds packets and append them in order to the last keyframeslot packets-list.
+        if self.streams:
+            t = time.time()
+            streams = self.streams.values()
+            while 1:
+                popstream = None
+                poptime = None
+
+                # find the oldest packet of any stream. stream is just a packet list.
+                for stream in streams:
+                    if stream and (popstream == None or stream[0][0] < poptime):
+                        popstream = stream
+                        poptime = stream[0][0]
+
+                # found the stream with the youngest packet.
+                # remove the packet from sync-stream and append it to "keyframe" if the packet is sufficiently old.
+                if popstream and (self.sync_window_seconds == None or t - poptime >= self.sync_window_seconds):
+                        self.sorted_packets.append( popstream.pop(0) )
+                        self.last_sorted_time = poptime
+                else:
+                    break
+
+    def get_sorted_packets(self):
+        """ Return [(timestamp, packet), ..], clear local buf. """
+        l = self.sorted_packets
+        self.sorted_packets = []
+        return l
+
+    def put_packet(self, timestamp, packet, stream_id):
+        """ Add a packet. Will decide if the packet is too old and disdcard it, or how to order it if not.
+        This is not a general solution to the syncing problem - assumes that packets with the same stream_id are ordered. """
+        stream = self.streams.get(stream_id, None)
+        if not stream:
+            stream = self.streams[stream_id] = []
+
+        if stream:
+            if stream[-1][0] > timestamp:
+                llog.warning("overwriting timestamp (%.2f s) for packet: %s", stream[-1][0] - timestamp, packet)
+                timestamp = stream[-1][0]
+
+            #assert stream[-1][0] <= timestamp, "\nnew packet %s: %s\nold packet %s: %s\n" % (timestamp, packet, stream[-1][0], stream[-1][1])
+
+        # this is a bit complicated...
+        # replace timestamp with last sorted packet timestamp if the given timestamp is smaller.
+        # this assures that all keyframes contain data with timestamps inside the keyframe period
+        # and also assures that output of this SyncBuffer is always time-ordered.
+        # the other possibility would be to just drop the packet. don't know which is better.
+        if self.last_sorted_time != None and timestamp < self.last_sorted_time:
+            timestamp = self.last_sorted_time
+
+        stream.append( (timestamp, packet) )
+
+
+class WorldStreamer:
+
+    MAX_PACKETS_PER_KEYFRAME_HINT = 500
+
+    def __init__(self, sync_window_seconds=5.):
+        """ sync_window_seconds - will only return entries that are older than this.
+        if None, then return entries as soon as they arrive; no sorting. """
+        self.sync_window_seconds = sync_window_seconds
         self.keyframeslots = [] # KeyframeSlot objects
         self.streams = {} # stream_id: packets_list
+
+        self.num_packets_sorted = 0 # statistics
+
+        self.syncbuffer = SyncBuffer(sync_window_seconds)
 
         # timepoints of sorted data. timestamps are read from the packets.
         self.start_time = None
@@ -41,33 +125,34 @@ class SyncBuffer:
         self.wanted_time = None # used by get_delta_packets(). like current_time, but can go beyond end_time and won't stop when there's no new packets for a while.
 
     def tick(self):
-        """ Run the sorting algorithm on the received packets given to put_packet() """
-        # get all older than sync_window_seconds packets and append them in order to the last keyframeslot packets-list.
-        if not self.keyframeslots or not self.streams:
-            return
+        """ Also returns a list of fresly sorted packets to be used on world creation """
+        self.syncbuffer.tick()
+        sorted_packets = self.syncbuffer.get_sorted_packets()
 
-        t = time.time()
-        streams = self.streams.values()
-        while 1:
-            popstream = None
-            poptime = None
+        if sorted_packets:
+            if not self.keyframeslots:
+                self.put_keyframe({}, sorted_packets[0][0])
 
-            # find the oldest packet of any stream. stream is just a packet list.
-            for stream in streams:
-                if stream and (popstream == None or stream[0][0] < poptime):
-                    popstream = stream
-                    poptime = stream[0][0]
+            self.end_time = sorted_packets[-1][0]
+            self.num_packets_sorted += len(sorted_packets)
 
-            # found the stream with the youngest packet.
-            # remove the packet from sync-stream and append it to "keyframe" if the packet is sufficiently old.
-            if popstream and (self.sync_window_seconds == None or t - poptime >= self.sync_window_seconds):
-                    self.keyframeslots[-1].packets.append( popstream.pop(0) )
-                    self.end_time = poptime
-            else:
-                break
+            #for packet in sorted_packets:
+            #    self.keyframeslots[-1].packets.append( packet )
+            self.keyframeslots[-1].packets.extend( sorted_packets )
+
+        return sorted_packets
+
+    def need_keyframe(self):
+        """ Add a new keyframe if this returns True. """
+        # makes sure that EVERY sorted packet has been handled. otherwise the world state gets out of sync.
+        if self.keyframeslots and len(self.keyframeslots[-1].packets) >= self.MAX_PACKETS_PER_KEYFRAME_HINT:
+            if self.keyframeslots[-1].packets[-1][0] > self.keyframeslots[-1].packets[0][0]:
+                return True
+        return False
 
     def put_keyframe(self, keyframe, timestamp=None):
         """ Sets the packet stream starting point and maybe also starts the recording process. Call periodically. """
+        assert keyframe != None
         if self.start_time == None:
             assert timestamp != None
             self.start_time = timestamp
@@ -79,27 +164,14 @@ class SyncBuffer:
             self.wanted_time = timestamp
 
         if timestamp == None:
-            timestamp = self.end_time + 0.00001
+            timestamp = self.end_time
 
         if self.keyframeslots: # ensure timestamp is newer than previous
             assert self.keyframeslots[-1].timestamp < timestamp
         self.keyframeslots.append( KeyframeSlot(timestamp, keyframe) )
 
     def put_packet(self, timestamp, packet, stream_id):
-        """ Add a packet to the SyncBuffer. SyncBuffer will decide if the packet is too old and disdcard it, or how to order it if not.
-        This is not a general solution to the syncing problem - assumes that packets with the same stream_id are ordered. """
-        if not self.keyframeslots:
-            self.put_keyframe(None, timestamp)
-
-        if timestamp >= self.start_time:
-            stream = self.streams.get(stream_id, None)
-            if not stream:
-                stream = self.streams[stream_id] = []
-
-            if stream:
-                assert stream[-1][0] <= timestamp
-
-            stream.append( (timestamp, packet) )
+        self.syncbuffer.put_packet(timestamp, packet, stream_id)
 
     def seek(self, timestamp):
         """ Set playback time (self.current_time) to timestamp. Clip time between available data (self.start_time and self.end_time).
@@ -162,7 +234,7 @@ class SyncBuffer:
         return None, None
 
     def get_packets(self, start_time, end_time, end_is_inclusive=True):
-        """ return list of packets [(timestamp, packet), ..] between these timestamps. timestamps are relative to the SyncBuffer start.
+        """ return list of packets [(timestamp, packet), ..] between these timestamp.
         if end_is_inclusive is False, then start_time is inclusive. """
         assert end_time >= start_time
 

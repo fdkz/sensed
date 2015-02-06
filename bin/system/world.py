@@ -6,6 +6,7 @@ import logging
 llog = logging.getLogger(__name__) # the name 'log' is taken in sdl2
 
 import math
+import copy
 
 import vector
 import world_objects
@@ -25,23 +26,68 @@ class World:
 #        self.deserialize_world(serialized_world_jsn)
 
     def serialize_node(self, node):
-        pass
+        return {
+            "node_id": node.node_id,
+            "node_idstr": node.node_idstr,
+            "name": node.node_name,
+            "color": node.node_color,
+            "attrs": copy.deepcopy(node.attrs),
+        }
 
-    def serialize_link(self, node):
-        pass
+    # def serialize_link(self, link):
+    #     return {
+    #         "node1_id": link.node1.node_id,
+    #         "node1_idstr": link.node1.node_idstr,
+    #         "node2_id": link.node2.node_id,
+    #         "node2_idstr": link.node2.node_idstr,
+    #         "name": node.node_name,
+    #         "color": node.node_color,
+    #         "attrs": node.attrs,
+    #     }
 
     def serialize_world(self):
-        pass
+        """
+        world is a list of nodes and a list of links.
+        """
+        nodes = [] # a list of node dictionaries
+        for node in self.nodes:
+            nodes.append( self.serialize_node(node) )
 
-    def deserialize_node(self, jsn):
-        pass
+        # links = [] # a list of link dictionaries
+        # for link in self.links:
+        #     links.append( self.serialize_link(link) )
 
-    def deserialize_link(self, jsn):
-        pass
+        # world = {"nodes": nodes, "links": links}
+        world = {"nodes": nodes}
+        return world
+        #txt = json.dumps(world, indent=4) #, sort_keys=True
+        #return txt
 
-    def deserialize_world(self, jsn):
+    def deserialize_node(self, dct):
+        #import pprint
+        #llog.info(pprint.pformat(dct))
+        pos = self.get_node_session_pos( dct["node_id"] )
+        node = world_objects.Node( vector.Vector(pos), dct["node_id"], dct["color"] )
+        node.node_idstr = dct["node_idstr"]
+        node.node_name = dct["name"]
+        node.attrs = copy.deepcopy(dct["attrs"])
+        return node
+
+    def deserialize_world(self, dct):
+        #import pprint
+        #llog.info("\n\n\nRESTORING")
+        #llog.info(pprint.pformat(dct))
+
         self.links = []
         self.nodes = []
+        self.links_dict = {}
+        self.nodes_dict = {}
+        sernodes = dct.get("nodes")
+        if sernodes:
+            for node_dict in sernodes:
+                node = self.deserialize_node(node_dict)
+                self.nodes.append(node)
+                self.nodes_dict[node.node_id] = node
 
     def get_link(self, src_node, dst_node):
         """ create a new link object if not found from self.links.
@@ -84,36 +130,40 @@ class World:
 
         return 0.8, 0.8, 0.8, 1.0
 
-    def append_node(self, node):
-        assert node.node_id not in self.nodes_dict
-        self.nodes.append(node)
-        self.nodes_dict[node.node_id] = node
-
     def get_create_node(self, node_id):
         if node_id in self.nodes_dict:
             return self.nodes_dict[node_id]
         else:
-            if node_id not in self.session_node_positions:
-                h = 0.
-                r = 1. + 0.5 * len(self.nodes)
-                a = float(len(self.nodes)) / (r + 10) * 15.
-                x, y = r * math.sin(a), r * math.cos(a)
-                pos = (x, h, y)
-            else:
-                pos = self.session_node_positions[node_id]
-
+            pos = self.get_node_session_pos(node_id)
             node = world_objects.Node( vector.Vector(pos), node_id, self.get_node_color(node_id) )
-            self.append_node(node)
+            self.nodes.append(node)
+            self.nodes_dict[node.node_id] = node
             return node
 
     def get_create_named_node(self, node_id_name):
         """ Createa node if it doesn't exist yet. Also set its name if given.
         node_id_name can be "12AB_somename" or "12AB" """
         n = node_id_name.split("_", 1)
-        node = self.get_create_node(int(n[0], 16))
-        if len(n) == 2:
+        node_id = int(n[0], 16)
+        if node_id in self.nodes_dict:
+            node = self.nodes_dict[node_id]
+        else:
+            node = self.get_create_node(node_id)
+
+        if len(n) == 2 and node.node_name != n[1]:
             node.node_name = n[1]
+
         return node
+
+    def get_node_session_pos(self, node_id):
+        if node_id not in self.session_node_positions:
+            h = 0.
+            r = 1. + 0.5 * len(self.nodes)
+            a = float(len(self.nodes)) / (r + 10) * 15.
+            x, y = r * math.sin(a), r * math.cos(a)
+            return (x, h, y)
+        else:
+            return self.session_node_positions[node_id]
 
     def tick(self, dt):
         for link in self.links:

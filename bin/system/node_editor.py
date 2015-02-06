@@ -7,6 +7,8 @@ import json
 import errno
 import math
 import random
+import time
+import datetime
 
 from OpenGL.GL import *
 from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
@@ -19,24 +21,35 @@ import vector
 import world
 import renderers
 import animations
-import syncbuffer
+import world_streamer
 
 from nanomsg import Socket, SUB, SUB_SUBSCRIBE, DONTWAIT, NanoMsgAPIError
 
 
+def timestamp_to_timestr(t):
+    d = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=t) # yes, utcfromtimestamp(t) won't work in all cases.
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", d.timetuple())
+    # this method does not work with times after 2038
+    #return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
+
+
 class NodeEditor:
-    STATE_PLAYBACK_ON_EDGE = 0x01 #
+    #STATE_PLAYBACK_ON_EDGE = 0x01 #
     STATE_PLAYBACK = 0x02 # playback from random place
+    STATE_PAUSED = 0x03
 
     # seek
     # get_delta_packets(dt)
     # get_current_timestamp
 
-    def __init__(self, mouse, gltext, conf):
+    def __init__(self, nugui, mouse, gltext, conf):
         self.conf = conf
         self.mouse = mouse  # TODO: use a special mouse object instead of the editor_main object directly.
         self.gltext = gltext
+        self.nugui = nugui
+
         self.world = world.World("ff", self.conf)
+        self.underworld = world.World("", self.conf) # not visible. used serializing keyframes
 
         self.mouse_hover = False
         self.mouse_dragging = False
@@ -51,19 +64,12 @@ class NodeEditor:
         self.load_session()
 
         self.recording = True
+        self.state = self.STATE_PLAYBACK
 
-        self.syncbuffer = syncbuffer.SyncBuffer(sync_window_seconds=2.)
+        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=self.conf.sync_depth_seconds)
 
-#        self.world_timeline = [(packetstream_timestamp, serialized_world_jsn), ...]
-
-        # h = 0.  # 10 cm from the ground. nnope. for now, h has to be 0.
-        # r = 1.
-        # for i in range(10):
-        #     a = float(i) / (r + 10) * 15.
-        #     x, y = r * math.sin(a), r * math.cos(a)
-        #     r += 0.5
-        #     n = Node( vector.Vector((x, h, y)), i + 1, self._get_node_color(i+1), gltext )
-        #     self.world.append_node(n)
+        self.current_playback_time = 0. # timepoint of the simulation that is currently visible on screen. can be dragged around with a slider.
+        self.timeslider_end_time = 0.
 
         self.s1 = Socket(SUB)
         self.s1.connect('tcp://127.0.0.1:55555')
@@ -71,17 +77,27 @@ class NodeEditor:
 
     def tick(self, dt, keys):
         self.world.tick(dt)
+        self.underworld.tick(dt)
         self.net_poll_packets()
-        self.syncbuffer.tick()
 
-        # there are two states
-        # STATE_
-        # aga kui ma kerin ja m2ngin kiiremini ja siis l6ppu j6uan? kuidas seda detektida?
-        # if last requested time > last available time: STATE_PLAYBACK_ON_EDGE
+        fresh_packets = self.worldstreamer.tick()
+        for p in fresh_packets:
+            self.handle_packet(p[1], self.underworld, barebones=True)
 
-        packets = self.syncbuffer.get_delta_packets(dt)
-        for p in packets:
-            self.handle_packet(p[1])
+        if self.state == self.STATE_PLAYBACK:
+            packets = self.worldstreamer.get_delta_packets(dt)
+            for p in packets:
+                self.handle_packet(p[1], self.world)
+
+        if self.worldstreamer.need_keyframe():
+            llog.info("need keyframe!")
+            w = self.underworld.serialize_world()
+
+            #import pprint
+            #llog.info("\n\n\nSAVING")
+            #llog.info(pprint.pformat(w))
+
+            self.worldstreamer.put_keyframe(w)
 
     def net_poll_packets(self):
         try:
@@ -105,7 +121,7 @@ class NodeEditor:
                             # get nodeid from packet
                             node_id_name = d[4]
                             nodeid = int(node_id_name.split("_", 1)[0], 16)
-                            self.syncbuffer.put_packet(float(d[2]), msg, nodeid)
+                            self.worldstreamer.put_packet(float(d[2]), msg, nodeid)
                     except:
                         llog.exception("")
 
@@ -113,7 +129,10 @@ class NodeEditor:
             if e.errno != errno.EAGAIN:
                 raise
 
-    def handle_packet(self, msg):
+    def handle_packet(self, msg, world, barebones=False):
+        """ barebones : if True, then won't use any animations and non-essential poking of the world.
+        Will result in a fast barebones world that is still usable for generating keyframes. """
+
         #llog.info("handle: %s", msg)
         d = msg.split()
         #d = d[1:] # cut off the seqno
@@ -125,7 +144,9 @@ class NodeEditor:
             # ['data', 'etx', '0001000000000200', 'node', '0A', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
             # ['data', 'etx', '0001000000000200', 'node', '0A_sniffy', 'index', '0', 'neighbor', '8', 'etx', '10', 'retx', '74']
             node_id_name = d[4]
-            node = self.world.get_create_named_node(node_id_name)
+            node = world.get_create_named_node(node_id_name)
+            src_node = node
+            src_node_id = node.node_id
 
             if d[0] == "data":
 
@@ -156,51 +177,51 @@ class NodeEditor:
                     # ['event', 'radiopowerstate', '0052451410156550', 'node', '04', 'state', '1']
                     radiopowerstate = int(d[6], 16)
                     node.attrs["radiopowerstate"] = radiopowerstate
-                    if radiopowerstate:
-                        node.poke_radio()
+                    if not barebones:
+                        if radiopowerstate:
+                            node.poke_radio()
 
                 elif d[1] == "beacon":
                     # ['event', 'beacon', '0052451410156550', 'node', '04', 'options', '0x00', 'parent', '0x0003', 'etx', '30']
                     options = int(d[6], 16)
                     parent = int(d[8], 16)
-                    node.append_animation(animations.BeaconAnimation(options))
                     node.attrs["parent"] = parent
+                    if not barebones:
+                        node.append_animation(animations.BeaconAnimation(options))
 
                 elif d[1] == "packet_to_activemessage" and 0:
                     # ['event', 'packet', '0000372279297175', 'node', '04', 'dest', '0x1234', 'amid', '0x71']
-                    src_node_id = node.node_id
                     dst_node_id = int(d[6], 16)
                     amid = int(d[8], 16)
                     if dst_node_id != 0xFFFF: # filter out broadcasts
-                        src_node = node
-                        dst_node = self.world.get_create_node(dst_node_id)
-                        link = self.world.get_link(src_node, dst_node)
-                        link.poke(src_node)
+                        dst_node = world.get_create_node(dst_node_id)
+                        if not barebones:
+                            link = world.get_link(src_node, dst_node)
+                            link.poke(src_node)
 
                 elif d[1] == "send_ctp_packet":
                     # event send_ctp_packet 0:0:38.100017602 node 03 dest 0x0004 origin 0x0009 sequence 21 type 0x71 thl 5
                     # event send_ctp_packet 0:0:10.574584572 node 04 dest 0x0003 origin 0x0005 sequence 4 amid 0x98 thl 1
-                    src_node_id = node.node_id
                     dst_node_id = int(d[6], 16)
                     origin_node_id = int(d[8], 16)
                     sequence_num = int(d[10])
                     amid = int(d[12], 16)
                     thl = int(d[14])
 
-                    src_node = node
-                    dst_node = self.world.get_create_node(dst_node_id)
-                    link = self.world.get_link(src_node, dst_node)
-                    # TODO: refactor node color
-                    link.poke(src_node, packet_color=self.world.get_node_color(origin_node_id))
+                    dst_node = world.get_create_node(dst_node_id)
+                    if not barebones:
+                        link = world.get_link(src_node, dst_node)
+                        # TODO: refactor node color
+                        link.poke(src_node, packet_color=world.get_node_color(origin_node_id))
 
                 elif d[1] == "packet_to_model_busy":
-                    src_node_id = node.node_id
                     dst_node_id = int(d[6], 16)
                     if dst_node_id != 0xFFFF: # filter out broadcasts
                         src_node = node
-                        dst_node = self.world.get_create_node(dst_node_id)
-                        link = self.world.get_link(src_node, dst_node)
-                        link.poke_busy(src_node)
+                        dst_node = world.get_create_node(dst_node_id)
+                        if not barebones:
+                            link = self.world.get_link(src_node, dst_node)
+                            link.poke_busy(src_node)
             else:
                 llog.info("unknown msg %s", repr(msg))
 
@@ -259,6 +280,52 @@ class NodeEditor:
         # draw the nodes themselves
         for node in self.world.nodes:
             self.node_renderer.render_overlay(node)
+
+        t = self.gltext
+
+        # render some information
+
+        glEnable(GL_TEXTURE_2D)
+        y = 5.
+        t.drawtl(" sync depth  : %.1f s " % (self.conf.sync_depth_seconds), 5, y, bgcolor=(0.8,0.8,0.8,.9), fgcolor=(0.,0.,0.,1.), z=100.); y += t.height
+        t.drawtl(" recording   : yes ", 5, y); y += t.height
+        txt = "-" if self.worldstreamer.start_time == None else round(self.worldstreamer.end_time - self.worldstreamer.start_time)
+        t.drawtl(" duration    : %s s " % (txt), 5, y); y += t.height
+        t.drawtl(" num packets : %i " % self.worldstreamer.num_packets_sorted, 5, y); y += t.height
+
+        # render and handle rewind-slider
+
+        txt = "-" if self.worldstreamer.start_time == None else timestamp_to_timestr(self.worldstreamer.start_time)
+        t.drawbl(txt, 10, h_pixels - 20, bgcolor=(1.0,1.0,1.0,.3), fgcolor=(0.,0.,0.,1.), z=100.)
+        txt = "-" if self.worldstreamer.end_time == None else timestamp_to_timestr(self.worldstreamer.end_time)
+        t.drawbr(txt, w_pixels-10, h_pixels-20)
+        txt = "-" if self.worldstreamer.current_time == None else timestamp_to_timestr(self.worldstreamer.current_time)
+        t.drawbm(txt, w_pixels/2, h_pixels-20, bgcolor=(1.0,1.0,1.0,.6))
+
+        glLineWidth(1.)
+        glDisable(GL_TEXTURE_2D)
+
+        if self.worldstreamer.start_time == None:
+            self.nugui.slider(1001, 10, h_pixels-40, w_pixels-20, 0., 0., 0., True)
+        else:
+            # don't update slider end time while dragging the slider
+            if self.nugui.id_active != 1001:
+                self.timeslider_end_time = self.worldstreamer.end_time
+            newtime = self.nugui.slider(1001, 10, h_pixels-40, w_pixels-20, self.worldstreamer.current_time, self.worldstreamer.start_time, self.timeslider_end_time)
+            if newtime != self.worldstreamer.current_time:
+                llog.info("seeking from %.2f to %.2f between %.2f %.2f", self.worldstreamer.current_time, newtime, self.worldstreamer.start_time, self.worldstreamer.end_time)
+                keyframe, packets = self.worldstreamer.seek(newtime)
+                self.world.deserialize_world(keyframe)
+                llog.info("seeking returned %i packets", len(packets))
+                for p in packets:
+                    self.handle_packet(p[1], self.world)
+
+        txt = "playing" if self.state == self.STATE_PLAYBACK else "paused"
+        if self.nugui.button(1002, 10, h_pixels-70, txt, w=64):
+            if self.state == self.STATE_PLAYBACK:
+                self.state = self.STATE_PAUSED
+            else:
+                self.state = self.STATE_PLAYBACK
 
     def intersects_node(self, sx, sy):
         for node in self.world.nodes:

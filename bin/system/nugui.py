@@ -222,7 +222,10 @@ class NuGui:
 
         val = min(val, val_right)
         val = max(val, val_left)
-        val_pix = (float(val) - val_left) / (val_right - val_left) * val_wpix
+        if val_right - val_left == 0.:
+            val_pix = 0.
+        else:
+            val_pix = (float(val) - val_left) / (val_right - val_left) * val_wpix
         val_pix += handle_wpix / 2.
         z = self.z
 

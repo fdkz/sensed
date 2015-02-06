@@ -111,9 +111,7 @@ class EditorMain:
 
         self.nugui = nugui.NuGui(self.gltext)
 
-        self.node_editor = node_editor.NodeEditor(self, self.gltext, conf)
-
-        self.time_visible = 10. # timepoint of the simulation that is currently visible on screen. can be dragged around with a slider.
+        self.node_editor = node_editor.NodeEditor(self.nugui, self, self.gltext, conf)
 
     #@staticmethod
     def _init_gl(self):
@@ -197,7 +195,6 @@ class EditorMain:
         glDisable(GL_DEPTH_TEST)
         glLineWidth(1.)
 
-        self.time_visible = self.nugui.slider(1001, 20, 100, 200, self.time_visible, 150, 250)
         self.node_editor.render_overlay(self.camera, self.camera_ocs, self.camera.ORTHOGONAL, self.w_pixels, self.h_pixels)
 
 
@@ -238,19 +235,19 @@ class EditorMain:
 
     def render_hud_text(self):
         glEnable(GL_TEXTURE_2D)
-        y = 5.
-        x = self.w_pixels - 6.
+        # y = 5.
+        # x = self.w_pixels - 6.
         t = self.gltext
-        y += t.height
-        t.drawtr(" example text 1         ", x, y, bgcolor=(1.0,1.0,1.0,.9), fgcolor=(0.,0.,0.,1.), z=100.); y+=t.height
-        t.drawtr(" example text 2: %6.1f " % (55.65), x, y, bgcolor=(.9,.9,.9,.9)); y+=t.height
+        # y += t.height
+        # t.drawtr(" example text 1         ", x, y, bgcolor=(1.0,1.0,1.0,.9), fgcolor=(0.,0.,0.,1.), z=100.); y+=t.height
+        # t.drawtr(" example text 2: %6.1f " % (55.65), x, y, bgcolor=(.9,.9,.9,.9)); y+=t.height
 
-        if self.mouse_floor_coord:
-            mouse_x = self.mouse_floor_coord[0]
-            mouse_y = self.mouse_floor_coord[2]
-        else:
-            mouse_x, mouse_y = 0., 0.
-        t.drawtl(" mouse coord: %6.2f %6.2f " % (mouse_x, mouse_y), 5, 5, bgcolor=(1.0,1.0,1.0,.9), fgcolor=(0.,0.,0.,1.), z=100.)
+        # if self.mouse_floor_coord:
+        #     mouse_x = self.mouse_floor_coord[0]
+        #     mouse_y = self.mouse_floor_coord[2]
+        # else:
+        #     mouse_x, mouse_y = 0., 0.
+        # t.drawtl(" mouse coord: %6.2f %6.2f " % (mouse_x, mouse_y), 5, 5, bgcolor=(1.0,1.0,1.0,.9), fgcolor=(0.,0.,0.,1.), z=100.)
 
         t.drawbr("fps: %.0f" % (self.fps_counter.fps), self.w_pixels, self.h_pixels,
                  fgcolor = (0., 0., 0., 1.), bgcolor = (0.7, 0.7, 0.7, .9), z = 100.)
