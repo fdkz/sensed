@@ -22,15 +22,35 @@ import world
 import renderers
 import animations
 import world_streamer
+import draw
+import graph_window
 
 from nanomsg import Socket, SUB, SUB_SUBSCRIBE, DONTWAIT, NanoMsgAPIError
 
 
 def timestamp_to_timestr(t):
-    d = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=t) # yes, utcfromtimestamp(t) won't work in all cases.
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", d.timetuple())
-    # this method does not work with times after 2038
-    #return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
+    """ '2010-01-18T18:40:42.23Z' utc time
+    OR '01 12:30:22s"""
+    try:
+        # this method does not support fractional seconds
+        #return time.strftime("%Y-%m-%dT%H:%M:%SZ", d.timetuple())
+        # this method does not work with times after 2038
+        #return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
+        # this method doesn't work in .. some .. cases. don't remember which.
+        #return datetime.datetime.utcfromtimestamp(t).strftime("%H:%M:%S.%f")[:11] + "Z"
+        # this method does not work with times < 1900
+        return (datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=t)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:22] + "Z"
+    except:
+        # fallback. return time in dhms (days, hours, minutes, seconds) format.
+        return "%i %02i:%02i:%02is" % (t // (60*60*24), t // (60*60) % 24, t // 60 % 60, t % 60)
+
+def timestamp_to_timestr_short(t):
+    """ '18:40:42.23Z' utc time
+    OR '01 12:30:22s"""
+    try:
+        return (datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=t)).strftime("%H:%M:%S.%f")[:11] + "Z"
+    except:
+        return "%i %02i:%02i:%02is" % (t // (60*60*24), t // (60*60) % 24, t // 60 % 60, t % 60)
 
 
 class NodeEditor:
@@ -51,6 +71,8 @@ class NodeEditor:
         self.world = world.World("ff", self.conf)
         self.underworld = world.World("", self.conf) # not visible. used serializing keyframes
 
+        self.mouse_x = 0.
+        self.mouse_y = 0.
         self.mouse_hover = False
         self.mouse_dragging = False
         self.selected = None
@@ -66,10 +88,14 @@ class NodeEditor:
         self.recording = True
         self.state = self.STATE_PLAYBACK
 
-        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=self.conf.sync_depth_seconds)
+        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=0.1)
+#        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=self.conf.sync_depth_seconds)
 
-        self.current_playback_time = 0. # timepoint of the simulation that is currently visible on screen. can be dragged around with a slider.
+        #self.current_playback_time = 0. # timepoint of the simulation that is currently visible on screen. can be dragged around with a slider.
         self.timeslider_end_time = 0.
+
+        self.graph_window = graph_window.GraphWindow(self.gltext)
+        self.graph_window_initialized = False
 
         self.s1 = Socket(SUB)
         self.s1.connect('tcp://127.0.0.1:55555')
@@ -98,6 +124,35 @@ class NodeEditor:
             #llog.info(pprint.pformat(w))
 
             self.worldstreamer.put_keyframe(w)
+
+        # always set the graph start 10 seconds before the first sample time. user-friendly start condition for the zoom-scroller.
+        if self.worldstreamer.start_time != None and not self.graph_window_initialized:
+            self.graph_window_initialized = True
+            self.graph_window.set_totalsample_start(self.worldstreamer.start_time - 10.)
+            self.graph_window.set_totalsample_end(self.worldstreamer.end_time)
+            self.graph_window.set_sample_visibility(self.worldstreamer.start_time - 10., self.worldstreamer.end_time)
+
+        if self.graph_window_initialized:
+            self.graph_window.set_totalsample_end(self.worldstreamer.end_time)
+
+        self.graph_window.tick()
+
+        if self.graph_window_initialized:
+            # if the graph was moved by keyboard/mouse
+            if self.graph_window.wanted_x2_was_moved:
+                self.graph_window.wanted_x2_was_moved = False
+                newtime = self.graph_window.wanted_visiblesample_x2
+
+                if newtime != self.worldstreamer.current_time:
+                    llog.info("seeking from %.2f to %.2f between %.2f %.2f", self.worldstreamer.current_time, newtime, self.worldstreamer.start_time, self.worldstreamer.end_time)
+                    keyframe, packets = self.worldstreamer.seek(newtime)
+                    self.world.deserialize_world(keyframe)
+                    llog.info("seeking returned %i packets", len(packets))
+                    for p in packets:
+                        self.handle_packet(p[1], self.world)
+
+            if self.state == self.STATE_PLAYBACK:
+                self.graph_window.move_sample_right_edge(self.worldstreamer.current_time)
 
     def net_poll_packets(self):
         try:
@@ -295,33 +350,43 @@ class NodeEditor:
 
         # render and handle rewind-slider
 
-        txt = "-" if self.worldstreamer.start_time == None else timestamp_to_timestr(self.worldstreamer.start_time)
-        t.drawbl(txt, 10, h_pixels - 20, bgcolor=(1.0,1.0,1.0,.3), fgcolor=(0.,0.,0.,1.), z=100.)
-        txt = "-" if self.worldstreamer.end_time == None else timestamp_to_timestr(self.worldstreamer.end_time)
-        t.drawbr(txt, w_pixels-10, h_pixels-20)
-        txt = "-" if self.worldstreamer.current_time == None else timestamp_to_timestr(self.worldstreamer.current_time)
-        t.drawbm(txt, w_pixels/2, h_pixels-20, bgcolor=(1.0,1.0,1.0,.6))
+        if 1:
+            txt = "-" if self.worldstreamer.start_time == None else timestamp_to_timestr(self.worldstreamer.start_time)
+            t.drawbl(txt, 5, h_pixels - 53, bgcolor=(0,0,0,.6), fgcolor=(.8,.8,.8,1.), z=100.)
+            txt = "-" if self.worldstreamer.end_time == None else timestamp_to_timestr(self.worldstreamer.end_time)
+            t.drawbr(txt, w_pixels-5, h_pixels-53)
+            txt = "-" if self.worldstreamer.current_time == None else timestamp_to_timestr(self.worldstreamer.current_time)
+            t.drawbm(txt, w_pixels/2, h_pixels-53, bgcolor=(0,0,0,.9))
 
-        glLineWidth(1.)
-        glDisable(GL_TEXTURE_2D)
+            glLineWidth(1.)
+            glDisable(GL_TEXTURE_2D)
 
-        if self.worldstreamer.start_time == None:
-            self.nugui.slider(1001, 10, h_pixels-40, w_pixels-20, 0., 0., 0., True)
-        else:
-            # don't update slider end time while dragging the slider
-            if self.nugui.id_active != 1001:
-                self.timeslider_end_time = self.worldstreamer.end_time
-            newtime = self.nugui.slider(1001, 10, h_pixels-40, w_pixels-20, self.worldstreamer.current_time, self.worldstreamer.start_time, self.timeslider_end_time)
-            if newtime != self.worldstreamer.current_time:
-                llog.info("seeking from %.2f to %.2f between %.2f %.2f", self.worldstreamer.current_time, newtime, self.worldstreamer.start_time, self.worldstreamer.end_time)
-                keyframe, packets = self.worldstreamer.seek(newtime)
-                self.world.deserialize_world(keyframe)
-                llog.info("seeking returned %i packets", len(packets))
-                for p in packets:
-                    self.handle_packet(p[1], self.world)
+
+    #        self.render_timeslide_scrollbar(h_pixels-80, w_pixels-10, w_pixels-20, 10)
+
+        if 0:
+            if self.worldstreamer.start_time == None:
+                self.nugui.slider(1001, 10, h_pixels-40, w_pixels-20, 0., 0., 0., True)
+            else:
+                # don't update slider end time while dragging the slider
+                if self.nugui.id_active != 1001:
+                    self.timeslider_end_time = self.worldstreamer.end_time
+                newtime = self.nugui.slider(1001, 10, h_pixels-40, w_pixels-20, self.worldstreamer.current_time, self.worldstreamer.start_time, self.timeslider_end_time)
+                if newtime != self.worldstreamer.current_time:
+                    llog.info("seeking from %.2f to %.2f between %.2f %.2f", self.worldstreamer.current_time, newtime, self.worldstreamer.start_time, self.worldstreamer.end_time)
+                    keyframe, packets = self.worldstreamer.seek(newtime)
+                    self.world.deserialize_world(keyframe)
+                    llog.info("seeking returned %i packets", len(packets))
+                    for p in packets:
+                        self.handle_packet(p[1], self.world)
+
+
+        self.graph_window.place_on_screen(0, h_pixels-51, w_pixels, 50)
+        self.graph_window.render()
+
 
         txt = "playing" if self.state == self.STATE_PLAYBACK else "paused"
-        if self.nugui.button(1002, 10, h_pixels-70, txt, w=64):
+        if self.nugui.button(1002, 5, h_pixels-90, txt, w=64):
             if self.state == self.STATE_PLAYBACK:
                 self.state = self.STATE_PAUSED
             else:
@@ -389,8 +454,20 @@ class NodeEditor:
     def close(self):
         self.save_session()
 
+    def is_world_move_allowed(self):
+        if self.graph_window.is_coordinate_inside_window(self.mouse_x, self.mouse_y):
+            return False
+        return True
+
     def event(self, event):
+
+        if self.graph_window.event(event):
+            return True
+
         if event.type == SDL_MOUSEMOTION:
+            self.mouse_x = float(event.motion.x)
+            self.mouse_y = float(event.motion.y)
+
             for node in self.world.nodes:
                 node.mouse_hover = False
             node = self.intersects_node(event.motion.x, event.motion.y)
@@ -402,8 +479,10 @@ class NodeEditor:
 
             if self.selected and self.mouse_dragging and self.mouse.mouse_lbdown_floor_coord:
                 self.selected.pos.set(self.mouse.mouse_floor_coord + self.selected_pos_ofs)
+                return True
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
+
             if event.button.button == SDL_BUTTON_LEFT:
                 node = self.intersects_node(event.button.x, event.button.y)
                 if node:

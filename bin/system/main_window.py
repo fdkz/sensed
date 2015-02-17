@@ -43,30 +43,7 @@ def g_set_perspective_projection(w, h, fov_x = 90., z_near = 1., z_far = 50 * 10
     gluPerspective(fov_x * float(h) / w, float(w) / h, z_near, z_far)
 
 
-class Circle:
-
-    def __init__(self, x, y, r, (red, g, b, a)):
-        self.x, self.y, self.r = x, y, r
-        self.red, self.g, self.b, self.a = red, g, b, a
-
-    def render(self):
-
-        glColor4d(self.red, self.g, self.b, self.a)
-
-        glBegin(GL_TRIANGLE_FAN)
-        for a in range(0, 360, 10):
-            x, z = self.x + self.r * math.sin(math.radians(a)), self.y + self.r * math.cos(math.radians(a))
-            glVertex3f(x, 0., z)
-        glEnd()
-
-        #glBegin(GL_LINE_LOOP)
-        #for a in range(0, 360, 10):
-        #    x, z = self.x + self.r * math.sin(math.radians(a)), self.y + self.r * math.cos(math.radians(a))
-        #    glVertex3f(x, 0., z)
-        #glEnd()
-
-
-class EditorMain:
+class MainWindow:
     def __init__(self, w, h, conf):
         self.conf = conf
         self.w_pixels, self.h_pixels = w, h
@@ -260,6 +237,7 @@ class EditorMain:
                 self.h_pixels = event.window.data2
             return
 
+
         if event.type == SDL_MOUSEMOTION:
             #llog.info("event mousemotion abs %i %i rel %i %i",
             #           event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel)
@@ -267,21 +245,7 @@ class EditorMain:
             self.mouse_y = float(event.motion.y)
             self.nugui.set_mouse_pos(self.mouse_x, self.mouse_y)
             self.mouse_window_coord = (float(event.motion.x), float(event.motion.y))
-
-            # move the world, but only if nugui is inactive
-            if not self.nugui.active():
-                # works only if orthogonal projection is used
-                if self.mouse_lbdown and self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
-                    d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
-                                       0.,
-                                       (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
-                    self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
-
             self.mouse_floor_coord = self.get_pixel_floor_coord(self.mouse_x, self.mouse_y)
-
-        elif event.type == SDL_MOUSEWHEEL:
-            if event.wheel.y:
-                self._zoom_view(self.mouse_x, self.mouse_y, self.mouse_zoom_speed * event.wheel.y)
 
         elif event.type == SDL_MOUSEBUTTONDOWN:
             #llog.info("SDL_MOUSEBUTTONDOWN %i x %i y %i", event.button.button, event.button.x, event.button.y)
@@ -294,9 +258,8 @@ class EditorMain:
                 if event.button.button == SDL_BUTTON_LEFT:
                     self.nugui.set_mouse_button(True)
                     self.mouse_lbdown = True
-                    # find object under cursor. if no object, drag the world
-                    self.mouse_dragging = True
                     self.object_under_cursor = None
+                    self.mouse_dragging = True
                     self.mouse_floor_coord = self.get_pixel_floor_coord(event.button.x, event.button.y)
                     if self.mouse_floor_coord:
                         self.mouse_lbdown_floor_coord = self.mouse_floor_coord.new()
@@ -312,13 +275,30 @@ class EditorMain:
                 #self.mouse_lbdown_camera_coord = None
                 #self.mouse_lbdown_window_coord = None
 
+
+        if self.node_editor.event(event):
+            return
+
+
+        if event.type == SDL_MOUSEMOTION:
+            # move the world, but only if nugui is inactive
+            if not self.nugui.active():
+                # works only if orthogonal projection is used
+                if self.mouse_lbdown and self.mouse_lbdown_floor_coord and not self.node_editor.mouse_dragging:
+                    d = vector.Vector((-(self.mouse_x - self.mouse_lbdown_window_coord[0]) / self.w_pixels * self.camera.orthox,
+                                       0.,
+                                       (self.mouse_y - self.mouse_lbdown_window_coord[1]) / self.h_pixels * self.camera.orthoy))
+                    self.camera_ocs.pos.set( self.mouse_lbdown_camera_coord + d )
+
+        elif event.type == SDL_MOUSEWHEEL:
+            if event.wheel.y:
+                self._zoom_view(self.mouse_x, self.mouse_y, self.mouse_zoom_speed * event.wheel.y)
+
         elif event.type == SDL_KEYDOWN:
             self.nugui.event(event)
         else:
             #llog.info("event! type %s", event.type)
             pass
-
-        self.node_editor.event(event)
 
     def _zoom_view(self, anchor_pixel_x, anchor_pixel_y, zoom_percent):
         # Zoom the camera view, but hold the point under mouse cursor steady. AND stop all movement when
@@ -345,6 +325,9 @@ class EditorMain:
     def handle_controls(self, dt, keys):
         """Continuous (as opposed to event-based) UI control. Move the camera (or other objects?) according to
         what keys are being held down."""
+
+        if not self.node_editor.is_world_move_allowed():
+            return
 
         #speed    = 5.
         #rotspeed = 120.
