@@ -88,8 +88,7 @@ class NodeEditor:
         self.recording = True
         self.state = self.STATE_PLAYBACK
 
-        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=0.1)
-#        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=self.conf.sync_depth_seconds)
+        self.worldstreamer = world_streamer.WorldStreamer(sync_window_seconds=self.conf.sync_depth_seconds)
 
         #self.current_playback_time = 0. # timepoint of the simulation that is currently visible on screen. can be dragged around with a slider.
         self.timeslider_end_time = 0.
@@ -357,7 +356,7 @@ class NodeEditor:
 
         glEnable(GL_TEXTURE_2D)
         y = 5.
-        t.drawtl(" sync depth  : %.1f s " % (self.conf.sync_depth_seconds), 5, y, bgcolor=(0.8,0.8,0.8,.9), fgcolor=(0.,0.,0.,1.), z=100.); y += t.height
+        t.drawtl(" sync depth  : %.1f s " % (self.worldstreamer.sync_window_seconds), 5, y, bgcolor=(0.8,0.8,0.8,.9), fgcolor=(0.,0.,0.,1.), z=100.); y += t.height
         t.drawtl(" recording   : yes ", 5, y); y += t.height
         txt = "-" if self.worldstreamer.start_time == None else round(self.worldstreamer.end_time - self.worldstreamer.start_time)
         t.drawtl(" duration    : %s s " % (txt), 5, y); y += t.height
