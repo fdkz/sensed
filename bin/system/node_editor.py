@@ -277,6 +277,21 @@ class NodeEditor:
                         if not barebones:
                             link = self.world.get_link(src_node, dst_node)
                             link.poke_busy(src_node)
+
+                elif d[1] == "send_done":
+                    # 'event send_done 1425601510.21 node 2C13_8 rm 0x02 dest 0x37B6 amid 0x71 error 0x00 retry_count 9 acked 0x01 congested 0x00 dropped 0x00'
+                    ramplex_id = int(d[6],16)
+                    dst_node_id = int(d[8],16)
+                    amid = int(d[10],16)
+                    error = int(d[12],16)
+                    retry_count = int(d[14],16)
+                    acked = int(d[16],16)
+                    congested = int(d[18],16)
+                    dropped = int(d[20],16)
+
+                    if not barebones and retry_count > 0:
+                        node.append_animation(animations.SendRetryAnimation(max_age=1., start_color=(1.,0.,0.,1.), end_color=(0.,0.,0.,0.2), retry_count=retry_count))
+
             else:
                 llog.info("unknown msg %s", repr(msg))
 

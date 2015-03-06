@@ -14,6 +14,7 @@ from copenglconstants import * # import to silence opengl enum errors for pychar
 import vbo
 import vector
 import animations
+import draw
 
 
 class LinkRenderer:
@@ -71,13 +72,16 @@ class NodeRenderer:
         """Render the iconified representation at self.screen_pos screen-coordinates."""
         s = node.screen_pos
 
-        if 1: # use restless beacon animation
-            for anim in node._animations:
-                if isinstance(anim, animations.BeaconAnimation):
-                    s = s.new()
-                    d = 3.
-                    s.add(vector.Vector((random.random() * d - d*0.5, random.random() * d - d*0.5, 0.)))
-                    break
+        # postprocess some animations
+        for anim in node._animations:
+            # use restless beacon animation
+            if isinstance(anim, animations.BeaconAnimation):
+                s = s.new()
+                d = 3.
+                s.add(vector.Vector((random.random() * d - d*0.5, random.random() * d - d*0.5, 0.)))
+            # keep the retry-animation connected to the node
+            if isinstance(anim, animations.SendRetryAnimation):
+                anim.set_pos(s[0]-node.radius_pixels-3., s[1]+node.radius_pixels-3., s[2])
 
         glDisable(GL_TEXTURE_2D)
 
@@ -120,6 +124,11 @@ class NodeRenderer:
         self.gltext.drawmm(node.node_name, s[0], s[1] + self.gltext.height, bgcolor=(1.0,1.0,1.0,0.), fgcolor=(0.,0.,0.,1.), z=s[2])
 
         h = self.gltext.height * 2 + 2
+
+        glDisable(GL_TEXTURE_2D)
+
+        for anim in node._animations:
+            anim.render_ortho()
 
         #for key, val in node.attrs.items():
             #if key.startswith("etx_data"):

@@ -7,6 +7,7 @@ from OpenGL.GL import *
 from copenglconstants import * # import to silence opengl enum errors for pycharm. pycharm can't see pyopengl enums.
 
 import vbo
+import draw
 
 
 class ColorAnimation:
@@ -35,6 +36,9 @@ class ColorAnimation:
                 c1[3] + d*(c2[3]-c1[3]))
 
     def render(self):
+        pass
+
+    def render_ortho(self):
         pass
 
 
@@ -74,6 +78,9 @@ class BeaconAnimation:
         r, g, b, a = self.centercolor
         glColor4f(r, g, b, 1 - self.age / self.max_age * 0.6)
         self._filled_circles_xz_vbo.draw(GL_TRIANGLE_FAN)
+
+    def render_ortho(self):
+        pass
 
     def _build_filled_circle_xz_vbo(self, radius, centercolor, edgecolor):
         """Build a vbo of a filled circle. meant to be rendered with GL_TRIANGLE_FAN."""
@@ -126,3 +133,47 @@ class PacketAnimation:
 
         glEnd()
         glPopMatrix()
+
+    def render_ortho(self):
+        pass
+
+
+class SendRetryAnimation:
+    """ a vertical dissolving line besides the node that gets updated with retry count after every sendDone. """
+    def __init__(self, max_age, start_color=(0.,0.,0.,1.), end_color=(1.,1.,1.,1.), retry_count=1):
+        self.retry_count = retry_count
+        self.start_color = start_color
+        self.end_color = end_color
+        self.cur_color = start_color
+        self.age = 0.
+        self.max_age = max_age
+        self.x = 0.
+        self.y = 0.
+        self.dead = False
+
+    def set_pos(self, x, y, z):
+        self.x = x
+        self.y = y
+
+    def tick(self, dt):
+        if not self.dead:
+            self.age += dt
+            if self.age > self.max_age:
+                self.age = self.max_age
+                self.dead = True
+            c1 = self.start_color
+            c2 = self.end_color
+            d = self.age / self.max_age
+            self.cur_color = (
+                c1[0] + d*(c2[0]-c1[0]),
+                c1[1] + d*(c2[1]-c1[1]),
+                c1[2] + d*(c2[2]-c1[2]),
+                c1[3] + d*(c2[3]-c1[3]))
+
+    def render(self):
+        pass
+
+    def render_ortho(self):
+        w = 2.
+        h = float(self.retry_count+1.)
+        draw.filled_rect(round(self.x-w/2.), round(self.y)-h, w, h, self.cur_color)
