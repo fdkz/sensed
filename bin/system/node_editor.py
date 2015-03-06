@@ -147,8 +147,19 @@ class NodeEditor:
                     keyframe, packets = self.worldstreamer.seek(newtime)
                     self.world.deserialize_world(keyframe)
                     llog.info("seeking returned %i packets", len(packets))
-                    for p in packets:
-                        self.handle_packet(p[1], self.world)
+                    if packets:
+                        # calc the timestamp from where to start using animations. use only 2 seconds worth, because
+                        # it's not very nice to animate all packets at once if seek returned 30 minutes worth of packets for example.
+                        # TODO: but if the keyframe is too close to the seek time, then we won't get even 2 seconds worth of packets.
+                        #       then we'll have to use the previous keyframe. oh, too much work..
+                        animations_start = packets[-1][0] - 2.
+                        for p in packets:
+                            timestamp, packet = p
+                            if timestamp < animations_start:
+                                # won't use animations for these packets
+                                self.handle_packet(packet, self.world, barebones=True)
+                            else:
+                                self.handle_packet(packet, self.world)
 
             if self.state == self.STATE_PLAYBACK:
                 self.graph_window.move_sample_right_edge(self.worldstreamer.current_time)
